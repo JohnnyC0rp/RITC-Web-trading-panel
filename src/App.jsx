@@ -5,12 +5,12 @@ import "./App.css";
 
 const DEFAULT_LOCAL = {
   baseUrl: "http://localhost:9999",
-  apiKey: "460G199Y",
+  apiKey: "",
 };
 
 const DEFAULT_REMOTE = {
   baseUrl: "http://flserver.rotman.utoronto.ca:10001",
-  authHeader: "Basic WlVBSS0yOm9tZWdh",
+  authHeader: "",
 };
 
 const POLL_BOOK_MS = 800;
@@ -73,7 +73,11 @@ function App() {
   const [showTerminalPrompt, setShowTerminalPrompt] = useState(false);
   const [terminalLines, setTerminalLines] = useState([]);
   const [useProxyLocal, setUseProxyLocal] = useState(false);
-  const [useProxyRemote, setUseProxyRemote] = useState(false);
+  const [useProxyRemote, setUseProxyRemote] = useState(true);
+  const [showChartSettings, setShowChartSettings] = useState(false);
+  const [showRangeSlider, setShowRangeSlider] = useState(false);
+  const [showMa20, setShowMa20] = useState(true);
+  const [showMa50, setShowMa50] = useState(false);
 
   const [orderDraft, setOrderDraft] = useState({
     ticker: "",
@@ -382,6 +386,26 @@ function App() {
     };
   }, [history]);
 
+  const sma = useMemo(() => {
+    if (!history?.length) return { ma20: [], ma50: [] };
+    const closes = history.map((c) => c.close);
+    const ticks = history.map((c) => c.tick);
+    const calc = (window) => {
+      const values = [];
+      for (let i = 0; i < closes.length; i += 1) {
+        if (i + 1 < window) {
+          values.push(null);
+          continue;
+        }
+        const slice = closes.slice(i + 1 - window, i + 1);
+        const avg = slice.reduce((sum, val) => sum + val, 0) / window;
+        values.push(Number(avg.toFixed(4)));
+      }
+      return { x: ticks, y: values };
+    };
+    return { ma20: calc(20), ma50: calc(50) };
+  }, [history]);
+
   const chartData = candleData
     ? [
         {
@@ -394,6 +418,30 @@ function App() {
           increasing: { line: { color: "#2E8B57" } },
           decreasing: { line: { color: "#C0392B" } },
         },
+        ...(showMa20
+          ? [
+              {
+                type: "scatter",
+                mode: "lines",
+                name: "SMA 20",
+                x: sma.ma20.x,
+                y: sma.ma20.y,
+                line: { color: "#1f77b4", width: 2 },
+              },
+            ]
+          : []),
+        ...(showMa50
+          ? [
+              {
+                type: "scatter",
+                mode: "lines",
+                name: "SMA 50",
+                x: sma.ma50.x,
+                y: sma.ma50.y,
+                line: { color: "#9467bd", width: 2 },
+              },
+            ]
+          : []),
       ]
     : [];
 
@@ -407,6 +455,7 @@ function App() {
       title: "Tick",
       gridcolor: "rgba(0,0,0,0.08)",
       tickfont: { size: 10 },
+      rangeslider: { visible: showRangeSlider },
     },
     yaxis: {
       title: "Price",
@@ -419,6 +468,7 @@ function App() {
     displayModeBar: true,
     responsive: true,
     modeBarButtonsToAdd: ["select2d", "lasso2d"],
+    modeBarButtonsToRemove: ["zoomIn2d", "zoomOut2d"],
   };
 
   const canConnect = mode === "local" ? localConfig.apiKey : remoteConfig.authHeader;
@@ -428,7 +478,10 @@ function App() {
       <header className="hero">
         <div>
           <p className="hero-eyebrow">RIT Trading Client</p>
-          <h1>Privod Johnny</h1>
+          <div className="hero-title">
+            <img className="hero-logo" src="/logo-transparent.png" alt="Privod Johnny logo" />
+            <h1>Privod Johnny</h1>
+          </div>
           <p className="hero-subtitle">A modern trading cockpit with live order book, candles, and fast order entry.</p>
         </div>
         <div className="status-block">
@@ -670,7 +723,44 @@ function App() {
               </div>
             </div>
             <div className="split-panel">
-              <div className="card-title">Candles</div>
+              <div className="card-title chart-header">
+                <span>Candles</span>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setShowChartSettings((prev) => !prev)}
+                >
+                  Chart Settings
+                </button>
+              </div>
+              {showChartSettings && (
+                <div className="chart-settings">
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={showRangeSlider}
+                      onChange={(event) => setShowRangeSlider(event.target.checked)}
+                    />
+                    Enable range slider
+                  </label>
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={showMa20}
+                      onChange={(event) => setShowMa20(event.target.checked)}
+                    />
+                    SMA 20
+                  </label>
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={showMa50}
+                      onChange={(event) => setShowMa50(event.target.checked)}
+                    />
+                    SMA 50
+                  </label>
+                </div>
+              )}
               {history.length === 0 ? (
                 <div className="muted">No candle history yet.</div>
               ) : (

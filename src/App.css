@@ -36,6 +36,20 @@
   letter-spacing: -0.02em;
 }
 
+.hero-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hero-logo {
+  width: 76px;
+  height: 76px;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+
 .hero-eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.18em;
@@ -241,6 +255,22 @@ button.full {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.chart-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.04);
+  border-radius: 12px;
 }
 
 .book-table {

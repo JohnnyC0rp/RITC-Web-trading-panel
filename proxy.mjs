@@ -7,19 +7,17 @@ const TARGET_REMOTE = "http://flserver.rotman.utoronto.ca:10001";
 const TARGET_LOCAL = "http://localhost:9999";
 const AUTH_HEADER = "Basic WlVBSS0yOm9tZWdh";
 
-const allowCors = (res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Authorization, Content-Type, X-API-Key, X-Proxy-Target"
-  );
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-};
+const allowCors = (headers) => ({
+  ...headers,
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "Authorization, Content-Type, X-API-Key, X-Proxy-Target",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+});
 
 const proxy = (req, res) => {
   if (req.method === "OPTIONS") {
-    res.writeHead(200);
-    allowCors(res);
+    res.writeHead(200, allowCors({}));
     res.end();
     return;
   }
@@ -48,15 +46,21 @@ const proxy = (req, res) => {
       headers,
     },
     (proxyRes) => {
-      res.writeHead(proxyRes.statusCode || 502, proxyRes.statusMessage, proxyRes.headers);
-      allowCors(res);
+      const baseHeaders = { ...proxyRes.headers };
+      res.writeHead(
+        proxyRes.statusCode || 502,
+        proxyRes.statusMessage,
+        allowCors(baseHeaders)
+      );
       proxyRes.pipe(res, { end: true });
     }
   );
 
   proxyReq.on("error", (err) => {
-    res.writeHead(502, { "Content-Type": "application/json" });
-    allowCors(res);
+    res.writeHead(
+      502,
+      allowCors({ "Content-Type": "application/json" })
+    );
     res.end(JSON.stringify({ error: err.message }));
   });
 

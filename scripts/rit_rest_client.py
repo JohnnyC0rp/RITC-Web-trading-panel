@@ -12,7 +12,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-CREDS_PATH = Path(__file__).parent / "creds" / "rit_rest.json"
+CREDS_PATH = Path(__file__).parent.parent / "creds" / "rit_rest.json"
 
 # Hardcoded defaults from the API Info dialog (kept in sync with creds).
 DEFAULTS = {

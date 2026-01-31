@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./public/logo-transparent.png" alt="Privod Johnny logo" width="72" height="72" />
+</p>
+
 # Privod Johnny — RITC Web Trading Panel
 
 A modern web interface that replaces the Excel / native Windows RIT client for connecting to RITC practice and live servers. It supports **Local (Client REST API)** and **Remote (DMA REST API)** flows, includes a live order book, candles (Plotly), and full API tooling.
@@ -40,9 +44,9 @@ The `scripts/` folder contains small Python scripts used for API testing:
 - `scripts/speed_test.py`
 - `scripts/test_remote.py`
 
-Credentials are stored in `scripts/creds/` and **ignored by git**.
+Credentials are stored in `creds/` and **ignored by git**.
 A blank template file is provided:
-- `scripts/creds/rit_rest.example.jsonc`
+- `creds/rit_rest.example.jsonc`
 
 ## Performance Observations
 - Practical tests show ~**2 requests/sec** on remote DMA.
@@ -53,6 +57,14 @@ A blank template file is provided:
 npm install
 npm run dev
 ```
+
+## GitHub Pages (front-end only)
+This repo includes a GitHub Actions workflow that deploys the static UI to GitHub Pages.
+
+Important:
+- GitHub Pages can host the **UI only**.
+- The **proxy server cannot run on GitHub Pages**, so you must host the proxy separately (or run it locally).
+- For remote DMA access, you still need the proxy to bypass CORS.
 
 ## Notes
 - Local connection requires the Windows RIT User App running.
