@@ -44,6 +44,14 @@ const formatNumber = (value, decimals = 2) => {
   return Number(value).toFixed(decimals);
 };
 
+const formatQty = (value) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return "";
+  const formatted = new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 2,
+  }).format(Number(value));
+  return formatted.replace(/,/g, " ");
+};
+
 const getQty = (level) =>
   level?.quantity ?? level?.qty ?? level?.size ?? level?.volume ?? null;
 
@@ -95,6 +103,7 @@ function App() {
   const bookScrollRef = useRef(null);
   const openOrdersRef = useRef([]);
   const cancelledOrdersRef = useRef(new Map());
+  const audioRef = useRef(null);
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
   const [chartView, setChartView] = useState({});
@@ -138,6 +147,28 @@ function App() {
   const notify = useCallback((message, tone = "info") => {
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     setNotifications((prev) => [...prev, { id, message, tone }]);
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      if (!audioRef.current) {
+        audioRef.current = new AudioContext();
+      }
+      const ctx = audioRef.current;
+      if (ctx.state === "suspended") {
+        ctx.resume();
+      }
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      gain.gain.value = 0.06;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.12);
+    } catch (error) {
+      // If autoplay is blocked, we stay silent.
+    }
     setTimeout(() => {
       setNotifications((prev) => prev.filter((item) => item.id !== id));
     }, 4200);
@@ -668,7 +699,7 @@ function App() {
   const bookStale =
     connectionStatus === "Connected" &&
     lastBookUpdateAt > 0 &&
-    now - lastBookUpdateAt > 5000;
+    now - lastBookUpdateAt > 2000;
   const statusLabel = bookStale ? "No updates" : connectionStatus;
   const statusClass = bookStale
     ? "warning"
@@ -954,11 +985,11 @@ function App() {
                           />
                           {myOrders.buyCount ? (
                             <span className="book-meta">
-                              <span className="book-chip">{myOrders.buyCount}x</span>
-                              <span className="book-chip">{myOrders.buyQty}</span>
+                              <span className="book-chip">{formatQty(myOrders.buyCount)}x</span>
+                              <span className="book-chip">{formatQty(myOrders.buyQty)}</span>
                             </span>
                           ) : null}
-                          <span className="book-value">{row.bidQty || ""}</span>
+                          <span className="book-value">{formatQty(row.bidQty)}</span>
                         </span>
                         <span className={`price ${row.isMid ? "mid" : ""}`}>
                           {row.price.toFixed(quotedDecimals)}
@@ -976,11 +1007,11 @@ function App() {
                           />
                           {myOrders.sellCount ? (
                             <span className="book-meta">
-                              <span className="book-chip">{myOrders.sellCount}x</span>
-                              <span className="book-chip">{myOrders.sellQty}</span>
+                              <span className="book-chip">{formatQty(myOrders.sellCount)}x</span>
+                              <span className="book-chip">{formatQty(myOrders.sellQty)}</span>
                             </span>
                           ) : null}
-                          <span className="book-value">{row.askQty || ""}</span>
+                          <span className="book-value">{formatQty(row.askQty)}</span>
                         </span>
                       </div>
                     );
