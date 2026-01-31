@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Plot from "react-plotly.js";
 import ApiLab from "./components/ApiLab";
 import "./App.css";
@@ -88,6 +88,8 @@ function App() {
   const [terminalUnlocked, setTerminalUnlocked] = useState(false);
   const [showTerminalPrompt, setShowTerminalPrompt] = useState(false);
   const [terminalLines, setTerminalLines] = useState([]);
+  const [lastBookInteraction, setLastBookInteraction] = useState(0);
+  const bookScrollRef = useRef(null);
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
   const [chartView, setChartView] = useState({});
@@ -384,6 +386,25 @@ function App() {
     }
   };
 
+  const placeQuickOrder = async (side, price) => {
+    if (!config || !selectedTicker) return;
+    const quantity = parseInt(orderDraft.quantity, 10) || 1;
+    const roundedPrice = Number(price);
+    try {
+      const payload = {
+        ticker: selectedTicker,
+        type: "LIMIT",
+        quantity,
+        action: side,
+        price: roundedPrice,
+      };
+      await apiPost("/orders", payload);
+      log(`Quick order: ${side} ${quantity} ${selectedTicker} @ ${roundedPrice}`);
+    } catch (error) {
+      log(`Quick order error: ${error?.data?.message || error.message}`);
+    }
+  };
+
   const lastPrice = securities.find((sec) => sec.ticker === selectedTicker)?.last ?? null;
   const bidPrice = securities.find((sec) => sec.ticker === selectedTicker)?.bid ?? null;
   const askPrice = securities.find((sec) => sec.ticker === selectedTicker)?.ask ?? null;
@@ -425,18 +446,79 @@ function App() {
   const rowCount = 80;
   const halfRows = Math.floor(rowCount / 2);
   const midTick = toStepTick(midPrice, priceStep);
+  const hasSpread =
+    Number.isFinite(bestBidPrice) &&
+    Number.isFinite(bestAskPrice) &&
+    Number(bestAskPrice) > Number(bestBidPrice);
+  const spreadCenterTick = hasSpread
+    ? toStepTick((Number(bestBidPrice) + Number(bestAskPrice)) / 2, priceStep)
+    : midTick;
   const priceRows = Array.from({ length: rowCount }, (_, idx) => {
     const offset = halfRows - idx;
     const tick = midTick + offset;
     const price = fromStepTick(tick, priceStep, quotedDecimals);
     const key = price.toFixed(quotedDecimals);
+    const isSpread =
+      hasSpread && price > Number(bestBidPrice) && price < Number(bestAskPrice);
     return {
       price,
       bidQty: bidMap.get(key) || 0,
       askQty: askMap.get(key) || 0,
       isMid: tick === midTick,
+      isSpread,
+      isCenter: tick === spreadCenterTick,
+      key,
     };
   });
+
+  const ordersByPrice = useMemo(() => {
+    const map = new Map();
+    orders.forEach((order) => {
+      if (order?.ticker !== selectedTicker || order?.price == null) return;
+      const key = Number(order.price).toFixed(quotedDecimals);
+      const side = String(order.action || "").toUpperCase();
+      const qty = Number(order.quantity ?? order.qty ?? 0);
+      const entry = map.get(key) || { buyQty: 0, buyCount: 0, sellQty: 0, sellCount: 0 };
+      if (side === "BUY") {
+        entry.buyQty += qty;
+        entry.buyCount += 1;
+      } else if (side === "SELL") {
+        entry.sellQty += qty;
+        entry.sellCount += 1;
+      }
+      map.set(key, entry);
+    });
+    return map;
+  }, [orders, quotedDecimals, selectedTicker]);
+
+  const markBookInteraction = () => {
+    setLastBookInteraction(Date.now());
+  };
+
+  const centerOrderBook = useCallback(() => {
+    const container = bookScrollRef.current;
+    if (!container) return;
+    const target = container.querySelector('[data-center="true"]');
+    if (!target) return;
+    target.scrollIntoView({ block: "center" });
+  }, []);
+
+  useEffect(() => {
+    if (!priceRows.length || lastBookInteraction) return;
+    centerOrderBook();
+    setLastBookInteraction(Date.now());
+  }, [centerOrderBook, lastBookInteraction, priceRows.length]);
+
+  useEffect(() => {
+    if (!priceRows.length) return;
+    const interval = setInterval(() => {
+      if (Date.now() - lastBookInteraction > 5000) {
+        centerOrderBook();
+        setLastBookInteraction(Date.now());
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [centerOrderBook, lastBookInteraction, priceRows.length]);
 
   const candleData = useMemo(() => {
     if (!history?.length) return null;
@@ -768,36 +850,70 @@ function App() {
               <div className="card-title">Order Book</div>
               <div className="book-table">
                 <div className="book-head wide">
-                  <span>Price</span>
                   <span>Bid Qty</span>
+                  <span>Price</span>
                   <span>Ask Qty</span>
                 </div>
-                <div className="book-scroll">
+                <div
+                  className="book-scroll"
+                  ref={bookScrollRef}
+                  onScroll={markBookInteraction}
+                  onWheel={markBookInteraction}
+                  onMouseDown={markBookInteraction}
+                  onTouchStart={markBookInteraction}
+                >
                   {priceRows.map((row, index) => {
                     const bidRatio = row.bidQty / maxVolume;
                     const askRatio = row.askQty / maxVolume;
                     const bidTone = getVolumeTone(bidRatio);
                     const askTone = getVolumeTone(askRatio);
+                    const myOrders = ordersByPrice.get(row.key) || {};
                     return (
                       <div
                         key={`${row.price}-${index}`}
-                        className={`book-row wide ${row.isMid ? "mid" : ""}`}
+                        className={`book-row wide ${row.isMid ? "mid" : ""} ${row.isSpread ? "spread" : ""}`}
+                        data-center={row.isCenter ? "true" : undefined}
                       >
-                        <span className={`price ${row.isMid ? "mid" : ""}`}>
-                          {row.price.toFixed(quotedDecimals)}
-                        </span>
-                        <span className="book-cell">
+                        <span
+                          className="book-cell bid"
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            markBookInteraction();
+                            placeQuickOrder("BUY", row.price);
+                          }}
+                        >
                           <span
                             className={`book-bar ${bidTone}`}
                             style={{ width: `${Math.round(bidRatio * 100)}%` }}
                           />
+                          {myOrders.buyCount ? (
+                            <span className="book-meta">
+                              <span className="book-chip">{myOrders.buyCount}x</span>
+                              <span className="book-chip">{myOrders.buyQty}</span>
+                            </span>
+                          ) : null}
                           <span className="book-value">{row.bidQty || ""}</span>
                         </span>
-                        <span className="book-cell">
+                        <span className={`price ${row.isMid ? "mid" : ""}`}>
+                          {row.price.toFixed(quotedDecimals)}
+                        </span>
+                        <span
+                          className="book-cell ask"
+                          onClick={() => {
+                            markBookInteraction();
+                            placeQuickOrder("SELL", row.price);
+                          }}
+                        >
                           <span
                             className={`book-bar ${askTone}`}
                             style={{ width: `${Math.round(askRatio * 100)}%` }}
                           />
+                          {myOrders.sellCount ? (
+                            <span className="book-meta">
+                              <span className="book-chip">{myOrders.sellCount}x</span>
+                              <span className="book-chip">{myOrders.sellQty}</span>
+                            </span>
+                          ) : null}
                           <span className="book-value">{row.askQty || ""}</span>
                         </span>
                       </div>

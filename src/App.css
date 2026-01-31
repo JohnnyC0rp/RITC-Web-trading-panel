@@ -309,6 +309,10 @@ button.full {
   font-size: 0.86rem;
 }
 
+.book-row.spread {
+  background: rgba(191, 219, 254, 0.5);
+}
+
 .book-row.mid {
   background: rgba(37, 99, 235, 0.08);
   border: 1px solid rgba(37, 99, 235, 0.2);
@@ -318,6 +322,7 @@ button.full {
   font-weight: 600;
   color: #0f172a;
   font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .book-row .price.mid {
@@ -329,12 +334,42 @@ button.full {
   height: 28px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 8px;
   padding: 0 8px;
   border-radius: 10px;
   background: rgba(15, 23, 42, 0.04);
   overflow: hidden;
   font-variant-numeric: tabular-nums;
+}
+
+.book-cell.bid,
+.book-cell.ask {
+  cursor: pointer;
+}
+
+.book-cell.bid .book-value {
+  color: #dc2626;
+}
+
+.book-cell.ask .book-value {
+  color: #16a34a;
+}
+
+.book-meta {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  gap: 6px;
+  font-size: 0.7rem;
+}
+
+.book-chip {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+  font-weight: 600;
 }
 
 .book-bar {
