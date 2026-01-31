@@ -790,6 +790,7 @@ function App() {
   const newsText = newsItems.length
     ? newsItems.map((item) => item.text).join(" • ")
     : Array.from({ length: 3 }, () => "News feed idle").join(" • ");
+  const newsLoop = Array.from({ length: 6 }, () => newsText).join(" • ");
 
   return (
     <div className="app">
@@ -802,8 +803,8 @@ function App() {
       </div>
       <div className="news-ticker">
         <div className="news-track">
-          <span>{newsText}</span>
-          <span aria-hidden="true">{newsText}</span>
+          <span>{newsLoop}</span>
+          <span aria-hidden="true">{newsLoop}</span>
         </div>
       </div>
       <header className="hero">

@@ -78,13 +78,14 @@
 
 .news-track {
   display: flex;
-  gap: 32px;
+  gap: 0;
   white-space: nowrap;
   animation: news-scroll 24s linear infinite;
+  width: max-content;
 }
 
 .news-track span {
-  padding-left: 32px;
+  padding-right: 24px;
 }
 
 @keyframes news-scroll {
