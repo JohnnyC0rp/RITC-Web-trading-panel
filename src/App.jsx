@@ -74,6 +74,7 @@ function App() {
   const [terminalLines, setTerminalLines] = useState([]);
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
+  const [chartView, setChartView] = useState({});
   const [showChartSettings, setShowChartSettings] = useState(false);
   const [showRangeSlider, setShowRangeSlider] = useState(false);
   const [showMa20, setShowMa20] = useState(true);
@@ -461,6 +462,8 @@ function App() {
       gridcolor: "rgba(0,0,0,0.08)",
       tickfont: { size: 10 },
     },
+    uirevision: selectedTicker,
+    ...chartView,
   };
 
   const chartConfig = {
@@ -763,7 +766,33 @@ function App() {
               {history.length === 0 ? (
                 <div className="muted">No candle history yet.</div>
               ) : (
-                <Plot data={chartData} layout={chartLayout} config={chartConfig} style={{ width: "100%", height: "420px" }} />
+                <Plot
+                  data={chartData}
+                  layout={chartLayout}
+                  config={chartConfig}
+                  style={{ width: "100%", height: "420px" }}
+                  onRelayout={(ev) => {
+                    const next = {};
+                    if (ev["xaxis.range[0]"] && ev["xaxis.range[1]"]) {
+                      next.xaxis = {
+                        ...(chartView.xaxis || {}),
+                        range: [ev["xaxis.range[0]"], ev["xaxis.range[1]"]],
+                      };
+                    }
+                    if (ev["yaxis.range[0]"] && ev["yaxis.range[1]"]) {
+                      next.yaxis = {
+                        ...(chartView.yaxis || {}),
+                        range: [ev["yaxis.range[0]"], ev["yaxis.range[1]"]],
+                      };
+                    }
+                    if (Object.keys(next).length) {
+                      setChartView((prev) => ({
+                        ...prev,
+                        ...next,
+                      }));
+                    }
+                  }}
+                />
               )}
             </div>
           </section>
