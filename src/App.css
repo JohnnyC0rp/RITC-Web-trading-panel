@@ -275,39 +275,100 @@ button.full {
 
 .book-table {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .book-head,
 .book-row {
   display: grid;
-  grid-template-columns: 1fr 0.9fr 1fr 0.9fr;
-  gap: 6px;
+  grid-template-columns: 0.8fr 1.6fr 1.6fr;
+  gap: 8px;
   align-items: center;
 }
 
 .book-head {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #6b7280;
+  padding: 0 4px;
+}
+
+.book-scroll {
+  display: grid;
+  gap: 6px;
+  max-height: 540px;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 
 .book-row {
   background: rgba(15, 23, 42, 0.04);
   padding: 6px 8px;
+  border-radius: 12px;
+  font-size: 0.86rem;
+}
+
+.book-row.mid {
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+}
+
+.book-row .price {
+  font-weight: 600;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.book-row .price.mid {
+  color: #1d4ed8;
+}
+
+.book-cell {
+  position: relative;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 8px;
   border-radius: 10px;
-  font-size: 0.85rem;
+  background: rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
 }
 
-.book-row .bid {
-  color: #167a6f;
-  font-weight: 600;
+.book-bar {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  bottom: 4px;
+  width: 0%;
+  border-radius: 8px;
+  transition: width 160ms ease;
+  z-index: 0;
 }
 
-.book-row .ask {
-  color: #c2410c;
+.book-bar.light {
+  background: rgba(147, 197, 253, 0.6);
+}
+
+.book-bar.mid {
+  background: rgba(96, 165, 250, 0.75);
+}
+
+.book-bar.deep {
+  background: rgba(37, 99, 235, 0.85);
+}
+
+.book-bar.none {
+  background: transparent;
+}
+
+.book-value {
+  position: relative;
+  z-index: 1;
   font-weight: 600;
+  color: #0f172a;
 }
 
 .api-lab {

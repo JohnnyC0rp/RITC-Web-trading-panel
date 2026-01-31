@@ -54,6 +54,22 @@ const formatLevel = (level) => ({
 
 const sortDepth = (levels, limit) => (Array.isArray(levels) ? levels.slice(0, limit) : []);
 
+const getStepFromDecimals = (decimals) => {
+  if (decimals === undefined || decimals === null) return 0.01;
+  return 1 / Math.pow(10, decimals);
+};
+
+const toStepTick = (price, step) => Math.round(price / step);
+const fromStepTick = (tick, step, decimals) =>
+  Number((tick * step).toFixed(decimals));
+
+const getVolumeTone = (ratio) => {
+  if (ratio >= 0.6) return "deep";
+  if (ratio >= 0.3) return "mid";
+  if (ratio > 0) return "light";
+  return "none";
+};
+
 function App() {
   const [mode, setMode] = useState("local");
   const [localConfig, setLocalConfig] = useState(DEFAULT_LOCAL);
@@ -368,12 +384,59 @@ function App() {
     }
   };
 
-  const bids = sortDepth(book?.bids || book?.bid || [], 10).map(formatLevel);
-  const asks = sortDepth(book?.asks || book?.ask || [], 10).map(formatLevel);
-
   const lastPrice = securities.find((sec) => sec.ticker === selectedTicker)?.last ?? null;
   const bidPrice = securities.find((sec) => sec.ticker === selectedTicker)?.bid ?? null;
   const askPrice = securities.find((sec) => sec.ticker === selectedTicker)?.ask ?? null;
+
+  const activeSecurity = securities.find((sec) => sec.ticker === selectedTicker) || {};
+  const quotedDecimals = Number.isInteger(activeSecurity.quoted_decimals)
+    ? activeSecurity.quoted_decimals
+    : 2;
+  const priceStep = getStepFromDecimals(quotedDecimals);
+
+  const aggregateLevels = (levels) => {
+    const map = new Map();
+    (levels || []).forEach((level) => {
+      if (level?.price === undefined || level?.price === null) return;
+      const qty = getQty(level) ?? 0;
+      const key = Number(level.price).toFixed(quotedDecimals);
+      map.set(key, (map.get(key) || 0) + qty);
+    });
+    return map;
+  };
+
+  const bidLevels = book?.bids || book?.bid || [];
+  const askLevels = book?.asks || book?.ask || [];
+  const bidMap = aggregateLevels(bidLevels);
+  const askMap = aggregateLevels(askLevels);
+  const maxVolume = Math.max(
+    1,
+    ...Array.from(bidMap.values()),
+    ...Array.from(askMap.values())
+  );
+
+  const bestBidPrice = bidLevels[0]?.price ?? bidPrice ?? lastPrice;
+  const bestAskPrice = askLevels[0]?.price ?? askPrice ?? lastPrice;
+  const midPrice =
+    bestBidPrice && bestAskPrice
+      ? (Number(bestBidPrice) + Number(bestAskPrice)) / 2
+      : Number(bestBidPrice || bestAskPrice || lastPrice || 0);
+
+  const rowCount = 80;
+  const halfRows = Math.floor(rowCount / 2);
+  const midTick = toStepTick(midPrice, priceStep);
+  const priceRows = Array.from({ length: rowCount }, (_, idx) => {
+    const offset = halfRows - idx;
+    const tick = midTick + offset;
+    const price = fromStepTick(tick, priceStep, quotedDecimals);
+    const key = price.toFixed(quotedDecimals);
+    return {
+      price,
+      bidQty: bidMap.get(key) || 0,
+      askQty: askMap.get(key) || 0,
+      isMid: tick === midTick,
+    };
+  });
 
   const candleData = useMemo(() => {
     if (!history?.length) return null;
@@ -704,24 +767,43 @@ function App() {
             <div className="split-panel">
               <div className="card-title">Order Book</div>
               <div className="book-table">
-                <div className="book-head">
-                  <span>Bid</span>
-                  <span>Size</span>
-                  <span>Ask</span>
-                  <span>Size</span>
+                <div className="book-head wide">
+                  <span>Price</span>
+                  <span>Bid Qty</span>
+                  <span>Ask Qty</span>
                 </div>
-                {Array.from({ length: Math.max(bids.length, asks.length, 10) }).map((_, index) => {
-                  const bid = bids[index] || {};
-                  const ask = asks[index] || {};
-                  return (
-                    <div key={index} className="book-row">
-                      <span className="bid">{formatNumber(bid.price)}</span>
-                      <span>{bid.qty ?? ""}</span>
-                      <span className="ask">{formatNumber(ask.price)}</span>
-                      <span>{ask.qty ?? ""}</span>
-                    </div>
-                  );
-                })}
+                <div className="book-scroll">
+                  {priceRows.map((row, index) => {
+                    const bidRatio = row.bidQty / maxVolume;
+                    const askRatio = row.askQty / maxVolume;
+                    const bidTone = getVolumeTone(bidRatio);
+                    const askTone = getVolumeTone(askRatio);
+                    return (
+                      <div
+                        key={`${row.price}-${index}`}
+                        className={`book-row wide ${row.isMid ? "mid" : ""}`}
+                      >
+                        <span className={`price ${row.isMid ? "mid" : ""}`}>
+                          {row.price.toFixed(quotedDecimals)}
+                        </span>
+                        <span className="book-cell">
+                          <span
+                            className={`book-bar ${bidTone}`}
+                            style={{ width: `${Math.round(bidRatio * 100)}%` }}
+                          />
+                          <span className="book-value">{row.bidQty || ""}</span>
+                        </span>
+                        <span className="book-cell">
+                          <span
+                            className={`book-bar ${askTone}`}
+                            style={{ width: `${Math.round(askRatio * 100)}%` }}
+                          />
+                          <span className="book-value">{row.askQty || ""}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
             <div className="split-panel">
