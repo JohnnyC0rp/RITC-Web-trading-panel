@@ -64,6 +64,38 @@
   max-width: 520px;
 }
 
+.news-ticker {
+  position: sticky;
+  top: 0;
+  z-index: 900;
+  background: linear-gradient(90deg, rgba(15, 23, 42, 0.96), rgba(37, 99, 235, 0.92));
+  color: #e2e8f0;
+  font-size: 0.85rem;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.news-track {
+  display: flex;
+  gap: 32px;
+  white-space: nowrap;
+  animation: news-scroll 24s linear infinite;
+}
+
+.news-track span {
+  padding-left: 32px;
+}
+
+@keyframes news-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
 .status-block {
   display: flex;
   flex-direction: column;

@@ -98,12 +98,15 @@ function App() {
   const [terminalLines, setTerminalLines] = useState([]);
   const [lastBookInteraction, setLastBookInteraction] = useState(0);
   const [lastBookUpdateAt, setLastBookUpdateAt] = useState(0);
+  const [lastConnectAt, setLastConnectAt] = useState(0);
   const [notifications, setNotifications] = useState([]);
   const [now, setNow] = useState(Date.now());
+  const [newsItems, setNewsItems] = useState([]);
   const bookScrollRef = useRef(null);
   const openOrdersRef = useRef([]);
   const cancelledOrdersRef = useRef(new Map());
   const audioRef = useRef(null);
+  const newsSinceRef = useRef(null);
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
   const [chartView, setChartView] = useState({});
@@ -255,6 +258,8 @@ function App() {
       setActiveConfig(cfg);
       setCaseInfo(caseData);
       setConnectionStatus("Connected");
+      setLastConnectAt(Date.now());
+      setLastBookUpdateAt(0);
       log(`Connected to ${cfg.baseUrl}`);
       log(`Case: ${caseData?.name ?? "Unknown"}`);
     } catch (error) {
@@ -286,6 +291,8 @@ function App() {
     setBook(null);
     setHistory([]);
     setOrders([]);
+    setLastConnectAt(0);
+    setLastBookUpdateAt(0);
     log("Disconnected");
   };
 
@@ -353,6 +360,73 @@ function App() {
       clearInterval(id);
     };
   }, [apiGet, config, log, selectedTicker]);
+
+  useEffect(() => {
+    if (!config) return undefined;
+    let stop = false;
+
+    const pull = async () => {
+      try {
+        const params = { limit: 20 };
+        if (newsSinceRef.current !== null && newsSinceRef.current !== undefined) {
+          params.since = newsSinceRef.current;
+        }
+        const data = await apiGet("/news", params);
+        const list = Array.isArray(data) ? data : data?.news || [];
+        if (!Array.isArray(list) || list.length === 0) return;
+        const normalized = list.map((item) => {
+          const sortKey = Number(
+            item.news_id ??
+              item.id ??
+              item.tick ??
+              item.timestamp ??
+              item.time ??
+              item.ts ??
+              0
+          );
+          const text =
+            item.headline ??
+            item.title ??
+            item.body ??
+            item.text ??
+            item.news ??
+            item.message ??
+            JSON.stringify(item);
+          return {
+            id: Number.isFinite(sortKey) && sortKey !== 0 ? sortKey : `${Date.now()}-${Math.random()}`,
+            sortKey,
+            text,
+          };
+        });
+        if (!stop) {
+          setNewsItems((prev) => {
+            const map = new Map(prev.map((entry) => [entry.id, entry]));
+            normalized.forEach((entry) => map.set(entry.id, entry));
+            const merged = Array.from(map.values());
+            merged.sort((a, b) => (a.sortKey || 0) - (b.sortKey || 0));
+            return merged.slice(-60);
+          });
+          const maxKey = Math.max(
+            ...normalized.map((entry) => (Number.isFinite(entry.sortKey) ? entry.sortKey : -1))
+          );
+          if (Number.isFinite(maxKey) && maxKey >= 0) {
+            newsSinceRef.current = maxKey;
+          }
+        }
+      } catch (error) {
+        if (!stop && error?.status !== 429) {
+          log(`News error: ${error.message}`);
+        }
+      }
+    };
+
+    pull();
+    const id = setInterval(pull, 4000);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, [apiGet, config, log]);
 
   useEffect(() => {
     if (!config || !selectedTicker) return undefined;
@@ -698,8 +772,8 @@ function App() {
   const canConnect = mode === "local" ? localConfig.apiKey : remoteConfig.authHeader;
   const bookStale =
     connectionStatus === "Connected" &&
-    lastBookUpdateAt > 0 &&
-    now - lastBookUpdateAt > 2000;
+    ((lastBookUpdateAt > 0 && now - lastBookUpdateAt > 2000) ||
+      (lastBookUpdateAt === 0 && lastConnectAt > 0 && now - lastConnectAt > 2000));
   const statusLabel = bookStale ? "No updates" : connectionStatus;
   const statusClass = bookStale
     ? "warning"
@@ -709,6 +783,9 @@ function App() {
   const statusDetail = bookStale
     ? "No book updates (session idle?)"
     : caseInfo?.name || "No case selected";
+  const newsText = newsItems.length
+    ? newsItems.map((item) => item.text).join(" • ")
+    : "News feed idle";
 
   return (
     <div className="app">
@@ -718,6 +795,12 @@ function App() {
             {note.message}
           </div>
         ))}
+      </div>
+      <div className="news-ticker">
+        <div className="news-track">
+          <span>{newsText}</span>
+          <span aria-hidden="true">{newsText}</span>
+        </div>
       </div>
       <header className="hero">
         <div>
