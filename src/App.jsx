@@ -89,7 +89,12 @@ function App() {
   const [showTerminalPrompt, setShowTerminalPrompt] = useState(false);
   const [terminalLines, setTerminalLines] = useState([]);
   const [lastBookInteraction, setLastBookInteraction] = useState(0);
+  const [lastBookUpdateAt, setLastBookUpdateAt] = useState(0);
+  const [notifications, setNotifications] = useState([]);
+  const [now, setNow] = useState(Date.now());
   const bookScrollRef = useRef(null);
+  const openOrdersRef = useRef([]);
+  const cancelledOrdersRef = useRef(new Map());
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
   const [chartView, setChartView] = useState({});
@@ -109,6 +114,11 @@ function App() {
     document.title = "Privod Johnny";
   }, []);
 
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const config = useMemo(() => {
     if (!activeConfig) return null;
     return {
@@ -123,6 +133,14 @@ function App() {
       const next = [...prev, `[${stamp}] ${message}`];
       return next.slice(-200);
     });
+  }, []);
+
+  const notify = useCallback((message, tone = "info") => {
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setNotifications((prev) => [...prev, { id, message, tone }]);
+    setTimeout(() => {
+      setNotifications((prev) => prev.filter((item) => item.id !== id));
+    }, 4200);
   }, []);
 
   const requestWithConfig = useCallback(async (cfg, path, params, options = {}) => {
@@ -285,7 +303,10 @@ function App() {
           ticker: selectedTicker,
           limit: 10,
         });
-        if (!stop) setBook(bookData || null);
+        if (!stop) {
+          setBook(bookData || null);
+          setLastBookUpdateAt(Date.now());
+        }
       } catch (error) {
         if (!stop && error?.status !== 429) {
           log(`Book error: ${error.message}`);
@@ -309,7 +330,28 @@ function App() {
     const pull = async () => {
       try {
         const orderData = await apiGet("/orders", { status: "OPEN" });
-        if (!stop) setOrders(orderData || []);
+        if (!stop) {
+          const nextOrders = orderData || [];
+          const prevOrders = openOrdersRef.current || [];
+          const prevMap = new Map(
+            prevOrders.map((order) => [order.order_id ?? order.id, order])
+          );
+          const nextMap = new Map(
+            nextOrders.map((order) => [order.order_id ?? order.id, order])
+          );
+          prevMap.forEach((order, orderId) => {
+            if (!nextMap.has(orderId)) {
+              const cancelledAt = cancelledOrdersRef.current.get(orderId);
+              if (!cancelledAt || Date.now() - cancelledAt > 8000) {
+                const qty = order.quantity ?? order.qty ?? "";
+                notify(`Order filled: ${order.ticker} ${qty} @ ${order.price}`, "success");
+              }
+              cancelledOrdersRef.current.delete(orderId);
+            }
+          });
+          openOrdersRef.current = nextOrders;
+          setOrders(nextOrders);
+        }
       } catch (error) {
         if (!stop && error?.status !== 429) {
           log(`Orders error: ${error.message}`);
@@ -371,6 +413,7 @@ function App() {
       const result = await apiPost("/orders", payload);
       log(`Order sent: ${orderDraft.side} ${quantity} ${orderDraft.ticker} @ ${price}`);
       log(`Order response: ${JSON.stringify(result)}`);
+      notify(`Order placed: ${orderDraft.side} ${quantity} ${orderDraft.ticker} @ ${price}`, "info");
     } catch (error) {
       log(`Order error: ${error?.data?.message || error.message}`);
     }
@@ -379,6 +422,7 @@ function App() {
   const handleCancel = async (orderId) => {
     if (!config) return;
     try {
+      cancelledOrdersRef.current.set(orderId, Date.now());
       await apiDelete(`/orders/${orderId}`);
       log(`Order ${orderId} cancelled.`);
     } catch (error) {
@@ -400,6 +444,7 @@ function App() {
       };
       await apiPost("/orders", payload);
       log(`Quick order: ${side} ${quantity} ${selectedTicker} @ ${roundedPrice}`);
+      notify(`Order placed: ${side} ${quantity} ${selectedTicker} @ ${roundedPrice}`, "info");
     } catch (error) {
       log(`Quick order error: ${error?.data?.message || error.message}`);
     }
@@ -614,14 +659,35 @@ function App() {
   const chartConfig = {
     displayModeBar: true,
     responsive: true,
-    modeBarButtonsToAdd: ["select2d", "lasso2d"],
-    modeBarButtonsToRemove: ["zoomIn2d", "zoomOut2d"],
+    scrollZoom: true,
+    doubleClick: "reset",
+    modeBarButtonsToRemove: ["select2d", "lasso2d"],
   };
 
   const canConnect = mode === "local" ? localConfig.apiKey : remoteConfig.authHeader;
+  const bookStale =
+    connectionStatus === "Connected" &&
+    lastBookUpdateAt > 0 &&
+    now - lastBookUpdateAt > 5000;
+  const statusLabel = bookStale ? "No updates" : connectionStatus;
+  const statusClass = bookStale
+    ? "warning"
+    : connectionStatus === "Connected"
+    ? "online"
+    : "offline";
+  const statusDetail = bookStale
+    ? "No book updates (session idle?)"
+    : caseInfo?.name || "No case selected";
 
   return (
     <div className="app">
+      <div className="toast-stack" aria-live="polite">
+        {notifications.map((note) => (
+          <div key={note.id} className={`toast ${note.tone}`}>
+            {note.message}
+          </div>
+        ))}
+      </div>
       <header className="hero">
         <div>
           <p className="hero-eyebrow">RIT Trading Client</p>
@@ -632,10 +698,10 @@ function App() {
           <p className="hero-subtitle">A modern trading cockpit with live order book, candles, and fast order entry.</p>
         </div>
         <div className="status-block">
-          <div className={`status-pill ${connectionStatus === "Connected" ? "online" : "offline"}`}>
-            {connectionStatus}
+          <div className={`status-pill ${statusClass}`}>
+            {statusLabel}
           </div>
-          <span className="status-detail">{caseInfo?.name || "No case selected"}</span>
+          <span className="status-detail">{statusDetail}</span>
         </div>
       </header>
 
@@ -971,6 +1037,10 @@ function App() {
                   style={{ width: "100%", height: "420px" }}
                   onRelayout={(ev) => {
                     const next = {};
+                    if (ev["xaxis.autorange"] || ev["yaxis.autorange"]) {
+                      setChartView({});
+                      return;
+                    }
                     if (ev["xaxis.range[0]"] && ev["xaxis.range[1]"]) {
                       next.xaxis = {
                         ...(chartView.xaxis || {}),
