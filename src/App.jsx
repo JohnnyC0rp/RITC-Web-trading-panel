@@ -271,6 +271,7 @@ function App() {
       setConnectionStatus("Connected");
       setLastConnectAt(Date.now());
       setLastBookUpdateAt(0);
+      playNotifySound();
       log(`Connected to ${cfg.baseUrl}`);
       log(`Case: ${caseData?.name ?? "Unknown"}`);
     } catch (error) {
@@ -871,7 +872,7 @@ function App() {
   const bookStale =
     connectionStatus === "Connected" &&
     ((lastBookUpdateAt > 0 && now - lastBookUpdateAt > 3000) ||
-      (lastBookUpdateAt === 0 && lastConnectAt > 0 && now - lastConnectAt > 3000));
+      (lastConnectAt > 0 && now - lastConnectAt > 3000));
   const statusLabel = bookStale ? "No updates" : connectionStatus;
   const statusClass = bookStale
     ? "warning"
