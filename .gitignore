@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.DS_Store
+.env
+.env.*
+
+# Credentials (keep template)
+scripts/creds/*
+!scripts/creds/rit_rest.example.jsonc

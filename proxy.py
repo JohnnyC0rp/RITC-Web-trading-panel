@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Simple CORS-friendly proxy for RIT REST API (GET/POST/DELETE)."""
+
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import urllib.request
+
+TARGET_REMOTE = "http://flserver.rotman.utoronto.ca:10001"
+TARGET_LOCAL = "http://localhost:9999"
+AUTH_HEADER = "Basic WlVBSS0yOm9tZWdh"
+
+
+class ProxyHandler(BaseHTTPRequestHandler):
+    def _forward(self, method):
+        target_mode = (self.headers.get("X-Proxy-Target") or "remote").strip().lower()
+        target = TARGET_LOCAL if target_mode == "local" else TARGET_REMOTE
+        url = target + self.path
+        body = None
+        if method in {"POST", "PUT", "PATCH"}:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length) if length else None
+
+        headers = {"Accept": "application/json"}
+        # Forward auth headers if present, otherwise use built-in remote auth.
+        auth = self.headers.get("Authorization")
+        api_key = self.headers.get("X-API-Key")
+        if auth:
+            headers["Authorization"] = auth
+        elif target_mode != "local":
+            headers["Authorization"] = AUTH_HEADER
+
+        if api_key:
+            headers["X-API-Key"] = api_key
+
+        if body is not None:
+            headers["Content-Type"] = self.headers.get("Content-Type", "application/json")
+
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        with urllib.request.urlopen(req) as resp:
+            self.send_response(resp.status)
+            for k, v in resp.headers.items():
+                if k.lower() in {"transfer-encoding", "content-encoding"}:
+                    continue
+                self.send_header(k, v)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header(
+                "Access-Control-Allow-Headers",
+                "Authorization, Content-Type, X-API-Key, X-Proxy-Target",
+            )
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            self.end_headers()
+            self.wfile.write(resp.read())
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "Authorization, Content-Type, X-API-Key, X-Proxy-Target",
+        )
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.end_headers()
+
+    def do_GET(self):
+        self._forward("GET")
+
+    def do_POST(self):
+        self._forward("POST")
+
+    def do_DELETE(self):
+        self._forward("DELETE")
+
+
+if __name__ == "__main__":
+    print("Proxy running at http://localhost:3001")
+    print("Remote target:", TARGET_REMOTE)
+    print("Local target :", TARGET_LOCAL)
+    HTTPServer(("0.0.0.0", 3001), ProxyHandler).serve_forever()
