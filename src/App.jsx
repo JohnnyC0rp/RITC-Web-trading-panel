@@ -882,7 +882,7 @@ function App() {
   }, [bookStale]);
 
   return (
-    <div className="app">
+    <div className="app" onContextMenu={(event) => event.preventDefault()}>
       <div className="toast-stack" aria-live="polite">
         {tenders.map((tender) => (
           <div key={tender.tender_id} className="toast tender">
