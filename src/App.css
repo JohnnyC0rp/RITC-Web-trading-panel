@@ -74,6 +74,9 @@
   padding: 8px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   overflow: hidden;
+  border-radius: 14px;
+  margin: 12px auto 0;
+  max-width: calc(100% - 64px);
 }
 
 .news-track {
@@ -499,27 +502,27 @@ button.full {
 }
 
 .book-cell.bid .book-bar.light {
-  background: rgba(248, 113, 113, 0.55);
-}
-
-.book-cell.bid .book-bar.mid {
-  background: rgba(239, 68, 68, 0.7);
-}
-
-.book-cell.bid .book-bar.deep {
-  background: rgba(220, 38, 38, 0.85);
-}
-
-.book-cell.ask .book-bar.light {
   background: rgba(134, 239, 172, 0.6);
 }
 
-.book-cell.ask .book-bar.mid {
+.book-cell.bid .book-bar.mid {
   background: rgba(74, 222, 128, 0.75);
 }
 
-.book-cell.ask .book-bar.deep {
+.book-cell.bid .book-bar.deep {
   background: rgba(34, 197, 94, 0.85);
+}
+
+.book-cell.ask .book-bar.light {
+  background: rgba(248, 113, 113, 0.55);
+}
+
+.book-cell.ask .book-bar.mid {
+  background: rgba(239, 68, 68, 0.7);
+}
+
+.book-cell.ask .book-bar.deep {
+  background: rgba(220, 38, 38, 0.85);
 }
 
 .book-bar.none {
