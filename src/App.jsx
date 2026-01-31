@@ -628,16 +628,13 @@ function App() {
   const acceptTender = async (tender) => {
     if (!config) return;
     try {
-      let payload = {};
-      if (!tender.is_fixed_bid) {
-        const fallback = tender.price != null ? Number(tender.price) : null;
-        const priceValue = Number(tenderPrices[tender.tender_id] ?? fallback);
-        if (!priceValue) {
-          notify("Enter a tender price before accepting.", "info");
-          return;
-        }
-        payload = { price: priceValue };
+      const fallback = tender.price != null ? Number(tender.price) : null;
+      const priceValue = tenderPrices[tender.tender_id] ?? fallback;
+      if (!tender.is_fixed_bid && !priceValue) {
+        notify("Enter a tender price before accepting.", "info");
+        return;
       }
+      const payload = priceValue ? { price: Number(priceValue) } : {};
       await apiPost(`/tenders/${tender.tender_id}`, payload);
       notify(`Tender accepted: ${tender.ticker} ${tender.quantity}`, "success");
       setTenders((prev) => prev.filter((item) => item.tender_id !== tender.tender_id));
@@ -1230,18 +1227,19 @@ function App() {
                     const bidTone = getVolumeTone(bidRatio);
                     const askTone = getVolumeTone(askRatio);
                     const myOrders = ordersByPrice.get(row.key) || {};
+                    const side = row.price <= (bestBidPrice ?? midPrice) ? "BUY" : "SELL";
                     return (
                       <div
                         key={`${row.price}-${index}`}
                         className={`book-row wide ${row.isMid ? "mid" : ""} ${row.isSpread ? "spread" : ""}`}
                         data-center={row.isCenter ? "true" : undefined}
+                        onClick={() => {
+                          markBookInteraction();
+                          placeQuickOrder(side, row.price);
+                        }}
                       >
                         <span
                           className="book-cell bid"
-                          onClick={() => {
-                            markBookInteraction();
-                            placeQuickOrder("BUY", row.price);
-                          }}
                         >
                           <span
                             className={`book-bar ${bidTone}`}
@@ -1255,22 +1253,11 @@ function App() {
                           ) : null}
                           <span className="book-value">{formatQty(row.bidQty)}</span>
                         </span>
-                        <span
-                          className={`price ${row.isMid ? "mid" : ""}`}
-                          onClick={() => {
-                            markBookInteraction();
-                            const side = row.price <= midPrice ? "BUY" : "SELL";
-                            placeQuickOrder(side, row.price);
-                          }}
-                        >
+                        <span className={`price ${row.isMid ? "mid" : ""}`}>
                           {row.price.toFixed(quotedDecimals)}
                         </span>
                         <span
                           className="book-cell ask"
-                          onClick={() => {
-                            markBookInteraction();
-                            placeQuickOrder("SELL", row.price);
-                          }}
                         >
                           <span
                             className={`book-bar ${askTone}`}

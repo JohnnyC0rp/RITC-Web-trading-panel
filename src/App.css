@@ -451,6 +451,7 @@ button.full {
   padding: 6px 8px;
   border-radius: 12px;
   font-size: 0.86rem;
+  cursor: pointer;
 }
 
 .book-row.spread {
