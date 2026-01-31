@@ -3,25 +3,49 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
-BASE_URL = "http://flserver.rotman.utoronto.ca:10001"
-AUTH_HEADER = "Basic WlVBSS0yOm9tZWdh"
+CREDS_PATH = Path(__file__).parent.parent / "creds" / "rit_rest.json"
 TICKER = "CRZY"
 REQUESTS = 500
 PRINT_EVERY = 25
 
 
-def make_headers() -> dict:
-    return {"Authorization": AUTH_HEADER, "Accept": "application/json"}
+def load_creds() -> dict:
+    if not CREDS_PATH.exists():
+        return {}
+    return json.loads(CREDS_PATH.read_text(encoding="utf-8"))
+
+
+def get_auth_header(creds: dict) -> str | None:
+    if creds.get("authorization_header"):
+        return creds["authorization_header"]
+    if creds.get("username") and creds.get("password"):
+        token = base64.b64encode(f"{creds['username']}:{creds['password']}".encode()).decode()
+        return f"Basic {token}"
+    return None
+
+
+def make_headers(auth_header: str) -> dict:
+    return {"Authorization": auth_header, "Accept": "application/json"}
 
 
 def main() -> None:
+    creds = load_creds()
+    base_url = creds.get("dma_base_url") or creds.get("base_url")
+    if not base_url:
+        raise SystemExit("Missing dma_base_url/base_url in creds.")
+    auth_header = get_auth_header(creds)
+    if not auth_header:
+        raise SystemExit("Missing authorization_header or username/password in creds.")
     params = urllib.parse.urlencode({"ticker": TICKER, "limit": 1})
-    url = f"{BASE_URL}/v1/securities/book?{params}"
-    headers = make_headers()
+    url = f"{base_url}/v1/securities/book?{params}"
+    headers = make_headers(auth_header)
 
     start = time.time()
     for i in range(REQUESTS):

@@ -2,11 +2,32 @@
 """Simple CORS-friendly proxy for RIT REST API (GET/POST/DELETE)."""
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+import base64
+import json
 import urllib.request
 
-TARGET_REMOTE = "http://flserver.rotman.utoronto.ca:10001"
-TARGET_LOCAL = "http://localhost:9999"
-AUTH_HEADER = "Basic WlVBSS0yOm9tZWdh"
+
+def _load_creds() -> dict:
+    path = Path(__file__).parent / "creds" / "rit_rest.json"
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _build_auth_header(creds: dict) -> str | None:
+    if creds.get("authorization_header"):
+        return creds["authorization_header"]
+    if creds.get("username") and creds.get("password"):
+        token = base64.b64encode(f"{creds['username']}:{creds['password']}".encode()).decode()
+        return f"Basic {token}"
+    return None
+
+
+CREDS = _load_creds()
+TARGET_REMOTE = CREDS.get("dma_base_url") or CREDS.get("base_url") or "http://flserver.rotman.utoronto.ca:10001"
+TARGET_LOCAL = CREDS.get("client_base_url") or "http://localhost:9999"
+AUTH_HEADER = _build_auth_header(CREDS)
 
 
 class ProxyHandler(BaseHTTPRequestHandler):
@@ -25,7 +46,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         api_key = self.headers.get("X-API-Key")
         if auth:
             headers["Authorization"] = auth
-        elif target_mode != "local":
+        elif target_mode != "local" and AUTH_HEADER:
             headers["Authorization"] = AUTH_HEADER
 
         if api_key:

@@ -2,10 +2,32 @@ import http from "http";
 import { request as httpsRequest } from "https";
 import { request as httpRequest } from "http";
 import { URL } from "url";
+import fs from "fs";
+import path from "path";
 
-const TARGET_REMOTE = "http://flserver.rotman.utoronto.ca:10001";
-const TARGET_LOCAL = "http://localhost:9999";
-const AUTH_HEADER = "Basic WlVBSS0yOm9tZWdh";
+const loadCreds = () => {
+  try {
+    const file = path.resolve(process.cwd(), "creds", "rit_rest.json");
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    return {};
+  }
+};
+
+const buildAuthHeader = (creds) => {
+  if (creds.authorization_header) return creds.authorization_header;
+  if (creds.username && creds.password) {
+    const token = Buffer.from(`${creds.username}:${creds.password}`).toString("base64");
+    return `Basic ${token}`;
+  }
+  return null;
+};
+
+const CREDS = loadCreds();
+const TARGET_REMOTE =
+  CREDS.dma_base_url || CREDS.base_url || "http://flserver.rotman.utoronto.ca:10001";
+const TARGET_LOCAL = CREDS.client_base_url || "http://localhost:9999";
+const AUTH_HEADER = buildAuthHeader(CREDS);
 
 const allowCors = (headers) => ({
   ...headers,
@@ -31,7 +53,7 @@ const proxy = (req, res) => {
   const headers = { Accept: "application/json" };
   if (req.headers["authorization"]) {
     headers.Authorization = req.headers["authorization"];
-  } else if (targetMode !== "local") {
+  } else if (targetMode !== "local" && AUTH_HEADER) {
     headers.Authorization = AUTH_HEADER;
   }
   if (req.headers["x-api-key"]) headers["X-API-Key"] = req.headers["x-api-key"];

@@ -14,13 +14,10 @@ from pathlib import Path
 
 CREDS_PATH = Path(__file__).parent.parent / "creds" / "rit_rest.json"
 
-# Hardcoded defaults from the API Info dialog (kept in sync with creds).
+# Non-sensitive defaults (credentials must come from creds/rit_rest.json).
 DEFAULTS = {
     "dma_host": "flserver.rotman.utoronto.ca",
     "client_base_url": "http://localhost:9999",
-    "username": "ZUAI-2",
-    "password": "omega",
-    "api_key": "460G199Y",
     "default_case": "Volatility Trading Case",
 }
 
