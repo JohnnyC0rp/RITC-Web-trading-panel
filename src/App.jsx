@@ -650,7 +650,11 @@ function App() {
     if (!container) return;
     const target = container.querySelector('[data-center="true"]');
     if (!target) return;
-    target.scrollIntoView({ block: "center" });
+    const targetTop = target.offsetTop;
+    const targetHeight = target.offsetHeight || 0;
+    const containerHeight = container.clientHeight || 0;
+    const nextScrollTop = Math.max(0, targetTop - containerHeight / 2 + targetHeight / 2);
+    container.scrollTo({ top: nextScrollTop, behavior: "smooth" });
   }, []);
 
   useEffect(() => {
