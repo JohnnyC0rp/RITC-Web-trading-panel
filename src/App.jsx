@@ -614,7 +614,7 @@ function App() {
       price,
       bidQty: bidMap.get(key) || 0,
       askQty: askMap.get(key) || 0,
-      isMid: tick === midTick,
+      isMid: hasSpread && tick === midTick,
       isSpread,
       isCenter: tick === spreadCenterTick,
       key,
