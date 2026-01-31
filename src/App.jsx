@@ -449,8 +449,7 @@ function App() {
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "#F6F2EA",
     margin: { l: 40, r: 20, t: 30, b: 30 },
-    dragmode: "select",
-    selectdirection: "any",
+    dragmode: "zoom",
     xaxis: {
       title: "Tick",
       gridcolor: "rgba(0,0,0,0.08)",
