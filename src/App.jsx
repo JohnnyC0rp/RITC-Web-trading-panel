@@ -789,7 +789,7 @@ function App() {
     : caseInfo?.name || "No case selected";
   const newsText = newsItems.length
     ? newsItems.map((item) => item.text).join(" • ")
-    : "News feed idle";
+    : Array.from({ length: 3 }, () => "News feed idle").join(" • ");
 
   return (
     <div className="app">
