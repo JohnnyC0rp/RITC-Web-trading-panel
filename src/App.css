@@ -74,9 +74,11 @@
   padding: 8px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   overflow: hidden;
-  border-radius: 14px;
-  margin: 12px auto 0;
-  max-width: calc(100% - 64px);
+  width: calc(100% + 56px);
+  border-radius: 0;
+  margin: -28px -28px 0;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+  transition: background 220ms ease, box-shadow 220ms ease;
 }
 
 .news-track {
@@ -125,13 +127,18 @@
 }
 
 .status-pill.warning {
-  background: rgba(59, 130, 246, 0.18);
-  color: #1d4ed8;
+  background: rgba(250, 204, 21, 0.25);
+  color: #a16207;
 }
 
 .status-detail {
   font-size: 0.9rem;
   color: #4b5563;
+}
+
+.status-meta {
+  font-size: 0.8rem;
+  color: #6b7280;
 }
 
 .layout {
@@ -167,6 +174,45 @@
 
 .toast.info {
   border-color: rgba(59, 130, 246, 0.25);
+}
+
+.toast.tender {
+  min-width: 320px;
+}
+
+.tender-main {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.tender-title {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.tender-sub {
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.tender-input {
+  width: 120px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  margin-bottom: 8px;
+}
+
+.tender-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+button.small {
+  padding: 6px 10px;
+  font-size: 0.8rem;
 }
 
 @keyframes toast-pop {

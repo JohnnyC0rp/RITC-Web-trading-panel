@@ -102,11 +102,15 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [now, setNow] = useState(Date.now());
   const [newsItems, setNewsItems] = useState([]);
+  const [tenders, setTenders] = useState([]);
+  const [tenderPrices, setTenderPrices] = useState({});
   const bookScrollRef = useRef(null);
   const openOrdersRef = useRef([]);
   const cancelledOrdersRef = useRef(new Map());
   const audioRef = useRef(null);
   const newsSinceRef = useRef(null);
+  const tenderIdsRef = useRef(new Set());
+  const hadStaleRef = useRef(false);
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
   const [chartView, setChartView] = useState({});
@@ -147,9 +151,7 @@ function App() {
     });
   }, []);
 
-  const notify = useCallback((message, tone = "info") => {
-    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    setNotifications((prev) => [...prev, { id, message, tone }]);
+  const playNotifySound = useCallback(() => {
     try {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (!AudioContext) return;
@@ -172,10 +174,19 @@ function App() {
     } catch (error) {
       // If autoplay is blocked, we stay silent.
     }
-    setTimeout(() => {
-      setNotifications((prev) => prev.filter((item) => item.id !== id));
-    }, 4200);
   }, []);
+
+  const notify = useCallback(
+    (message, tone = "info") => {
+      const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      setNotifications((prev) => [...prev, { id, message, tone }]);
+      playNotifySound();
+      setTimeout(() => {
+        setNotifications((prev) => prev.filter((item) => item.id !== id));
+      }, 4200);
+    },
+    [playNotifySound]
+  );
 
   const requestWithConfig = useCallback(async (cfg, path, params, options = {}) => {
     const url = buildUrl(cfg.baseUrl, path, params);
@@ -321,6 +332,38 @@ function App() {
   }, [apiGet, config, log]);
 
   useEffect(() => {
+    if (!config) return undefined;
+    let stop = false;
+
+    const pull = async () => {
+      try {
+        const list = await apiGet("/tenders");
+        if (stop) return;
+        const next = Array.isArray(list) ? list : [];
+        setTenders(next);
+        const nextIds = new Set(next.map((item) => item.tender_id));
+        next.forEach((item) => {
+          if (!tenderIdsRef.current.has(item.tender_id)) {
+            playNotifySound();
+          }
+        });
+        tenderIdsRef.current = nextIds;
+      } catch (error) {
+        if (!stop && error?.status !== 429) {
+          log(`Tenders error: ${error.message}`);
+        }
+      }
+    };
+
+    pull();
+    const id = setInterval(pull, 3000);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, [apiGet, config, log, playNotifySound]);
+
+  useEffect(() => {
     if (securities.length && !selectedTicker) {
       setSelectedTicker(securities[0]?.ticker || "");
     }
@@ -344,6 +387,10 @@ function App() {
         if (!stop) {
           setBook(bookData || null);
           setLastBookUpdateAt(Date.now());
+          if (hadStaleRef.current) {
+            setChartView({});
+            hadStaleRef.current = false;
+          }
         }
       } catch (error) {
         if (!stop && error?.status !== 429) {
@@ -555,6 +602,37 @@ function App() {
     }
   };
 
+  const acceptTender = async (tender) => {
+    if (!config) return;
+    try {
+      let payload = {};
+      if (!tender.is_fixed_bid) {
+        const priceValue = Number(tenderPrices[tender.tender_id]);
+        if (!priceValue) {
+          log("Enter a tender price before accepting.");
+          return;
+        }
+        payload = { price: priceValue };
+      }
+      await apiPost(`/tenders/${tender.tender_id}`, payload);
+      notify(`Tender accepted: ${tender.ticker} ${tender.quantity}`, "success");
+      setTenders((prev) => prev.filter((item) => item.tender_id !== tender.tender_id));
+    } catch (error) {
+      log(`Tender accept error: ${error?.data?.message || error.message}`);
+    }
+  };
+
+  const declineTender = async (tenderId) => {
+    if (!config) return;
+    try {
+      await apiDelete(`/tenders/${tenderId}`);
+      notify(`Tender declined: ${tenderId}`, "info");
+      setTenders((prev) => prev.filter((item) => item.tender_id !== tenderId));
+    } catch (error) {
+      log(`Tender decline error: ${error?.data?.message || error.message}`);
+    }
+  };
+
   const lastPrice = securities.find((sec) => sec.ticker === selectedTicker)?.last ?? null;
   const bidPrice = securities.find((sec) => sec.ticker === selectedTicker)?.bid ?? null;
   const askPrice = securities.find((sec) => sec.ticker === selectedTicker)?.ask ?? null;
@@ -599,7 +677,7 @@ function App() {
   const hasSpread =
     Number.isFinite(bestBidPrice) &&
     Number.isFinite(bestAskPrice) &&
-    Number(bestAskPrice) > Number(bestBidPrice);
+    Number(bestAskPrice) - Number(bestBidPrice) > priceStep;
   const spreadCenterTick = hasSpread
     ? toStepTick((Number(bestBidPrice) + Number(bestAskPrice)) / 2, priceStep)
     : midTick;
@@ -776,8 +854,8 @@ function App() {
   const canConnect = mode === "local" ? localConfig.apiKey : remoteConfig.authHeader;
   const bookStale =
     connectionStatus === "Connected" &&
-    ((lastBookUpdateAt > 0 && now - lastBookUpdateAt > 2000) ||
-      (lastBookUpdateAt === 0 && lastConnectAt > 0 && now - lastConnectAt > 2000));
+    ((lastBookUpdateAt > 0 && now - lastBookUpdateAt > 3000) ||
+      (lastBookUpdateAt === 0 && lastConnectAt > 0 && now - lastConnectAt > 3000));
   const statusLabel = bookStale ? "No updates" : connectionStatus;
   const statusClass = bookStale
     ? "warning"
@@ -791,10 +869,63 @@ function App() {
     ? newsItems.map((item) => item.text).join(" • ")
     : Array.from({ length: 3 }, () => "News feed idle").join(" • ");
   const newsLoop = Array.from({ length: 6 }, () => newsText).join(" • ");
+  const timeTicker = caseInfo
+    ? `Tick ${caseInfo.tick ?? "—"} / ${caseInfo.ticks_per_period ?? "—"} • Period ${
+        caseInfo.period ?? "—"
+      } / ${caseInfo.total_periods ?? "—"}`
+    : "";
+
+  useEffect(() => {
+    if (bookStale) {
+      hadStaleRef.current = true;
+    }
+  }, [bookStale]);
 
   return (
     <div className="app">
       <div className="toast-stack" aria-live="polite">
+        {tenders.map((tender) => (
+          <div key={tender.tender_id} className="toast tender">
+            <div className="tender-main">
+              <div className="tender-title">
+                {tender.caption || `Tender ${tender.tender_id}`}
+              </div>
+              <div className="tender-sub">
+                {tender.action} {tender.quantity} @ {tender.price ?? "MKT"} • {tender.ticker}
+              </div>
+            </div>
+            {!tender.is_fixed_bid && (
+              <input
+                className="tender-input"
+                type="number"
+                placeholder="Price"
+                value={tenderPrices[tender.tender_id] || ""}
+                onChange={(event) =>
+                  setTenderPrices((prev) => ({
+                    ...prev,
+                    [tender.tender_id]: event.target.value,
+                  }))
+                }
+              />
+            )}
+            <div className="tender-actions">
+              <button
+                type="button"
+                className="primary small"
+                onClick={() => acceptTender(tender)}
+              >
+                Accept
+              </button>
+              <button
+                type="button"
+                className="ghost small"
+                onClick={() => declineTender(tender.tender_id)}
+              >
+                Decline
+              </button>
+            </div>
+          </div>
+        ))}
         {notifications.map((note) => (
           <div key={note.id} className={`toast ${note.tone}`}>
             {note.message}
@@ -821,6 +952,7 @@ function App() {
             {statusLabel}
           </div>
           <span className="status-detail">{statusDetail}</span>
+          {timeTicker && <span className="status-meta">{timeTicker}</span>}
         </div>
       </header>
 
