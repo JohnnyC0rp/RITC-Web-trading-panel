@@ -151,7 +151,7 @@ function App() {
     });
   }, []);
 
-  const playNotifySound = useCallback(() => {
+  const playSound = useCallback((tone = "notify") => {
     try {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (!AudioContext) return;
@@ -165,7 +165,12 @@ function App() {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = "sine";
-      osc.frequency.value = 880;
+      const frequencies = {
+        notify: 660,
+        connect: 520,
+        tender: 980,
+      };
+      osc.frequency.value = frequencies[tone] || 660;
       gain.gain.value = 0.06;
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -180,12 +185,12 @@ function App() {
     (message, tone = "info") => {
       const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       setNotifications((prev) => [...prev, { id, message, tone }]);
-      playNotifySound();
+      playSound("notify");
       setTimeout(() => {
         setNotifications((prev) => prev.filter((item) => item.id !== id));
       }, 4200);
     },
-    [playNotifySound]
+    [playSound]
   );
 
   const requestWithConfig = useCallback(async (cfg, path, params, options = {}) => {
@@ -271,7 +276,7 @@ function App() {
       setConnectionStatus("Connected");
       setLastConnectAt(Date.now());
       setLastBookUpdateAt(0);
-      playNotifySound();
+      playSound("connect");
       log(`Connected to ${cfg.baseUrl}`);
       log(`Case: ${caseData?.name ?? "Unknown"}`);
     } catch (error) {
@@ -345,7 +350,7 @@ function App() {
         const nextIds = new Set(next.map((item) => item.tender_id));
         next.forEach((item) => {
           if (!tenderIdsRef.current.has(item.tender_id)) {
-            playNotifySound();
+            playSound("tender");
           }
         });
         tenderIdsRef.current = nextIds;
@@ -362,7 +367,7 @@ function App() {
       stop = true;
       clearInterval(id);
     };
-  }, [apiGet, config, log, playNotifySound]);
+  }, [apiGet, config, log, playSound]);
 
   useEffect(() => {
     if (!tenders.length) return;
@@ -582,6 +587,7 @@ function App() {
       log(`Order sent: ${orderDraft.side} ${quantity} ${orderDraft.ticker} @ ${price}`);
       log(`Order response: ${JSON.stringify(result)}`);
       notify(`Order placed: ${orderDraft.side} ${quantity} ${orderDraft.ticker} @ ${price}`, "info");
+      updateBookWithOrder(orderDraft.side, price, quantity);
     } catch (error) {
       log(`Order error: ${error?.data?.message || error.message}`);
     }
@@ -613,6 +619,7 @@ function App() {
       await apiPost("/orders", payload);
       log(`Quick order: ${side} ${quantity} ${selectedTicker} @ ${roundedPrice}`);
       notify(`Order placed: ${side} ${quantity} ${selectedTicker} @ ${roundedPrice}`, "info");
+      updateBookWithOrder(side, roundedPrice, quantity);
     } catch (error) {
       log(`Quick order error: ${error?.data?.message || error.message}`);
     }
@@ -637,6 +644,33 @@ function App() {
     } catch (error) {
       log(`Tender accept error: ${error?.data?.message || error.message}`);
     }
+  };
+
+  const updateBookWithOrder = (side, price, quantity) => {
+    setBook((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      const levelsKey = side === "BUY" ? "bids" : "asks";
+      const rawLevels = Array.isArray(prev[levelsKey]) ? [...prev[levelsKey]] : [];
+      const idx = rawLevels.findIndex((lvl) => Number(lvl.price) === Number(price));
+      if (idx >= 0) {
+        const current = rawLevels[idx];
+        const currentQty = getQty(current) ?? 0;
+        rawLevels[idx] = {
+          ...current,
+          qty: currentQty + quantity,
+          quantity: currentQty + quantity,
+          size: currentQty + quantity,
+        };
+      } else {
+        rawLevels.push({ price, qty: quantity });
+      }
+      rawLevels.sort((a, b) =>
+        side === "BUY" ? Number(b.price) - Number(a.price) : Number(a.price) - Number(b.price)
+      );
+      next[levelsKey] = rawLevels;
+      return next;
+    });
   };
 
   const declineTender = async (tenderId) => {
@@ -869,19 +903,9 @@ function App() {
   };
 
   const canConnect = mode === "local" ? localConfig.apiKey : remoteConfig.authHeader;
-  const bookStale =
-    connectionStatus === "Connected" &&
-    ((lastBookUpdateAt > 0 && now - lastBookUpdateAt > 3000) ||
-      (lastConnectAt > 0 && now - lastConnectAt > 3000));
-  const statusLabel = bookStale ? "No updates" : connectionStatus;
-  const statusClass = bookStale
-    ? "warning"
-    : connectionStatus === "Connected"
-    ? "online"
-    : "offline";
-  const statusDetail = bookStale
-    ? "No book updates (session idle?)"
-    : caseInfo?.name || "No case selected";
+  const statusLabel = connectionStatus;
+  const statusClass = connectionStatus === "Connected" ? "online" : "offline";
+  const statusDetail = caseInfo?.name || "No case selected";
   const newsText = newsItems.length
     ? newsItems.map((item) => item.text).join(" • ")
     : Array.from({ length: 3 }, () => "News feed idle").join(" • ");
@@ -893,10 +917,14 @@ function App() {
     : "";
 
   useEffect(() => {
-    if (bookStale) {
+    const stale =
+      connectionStatus === "Connected" &&
+      ((lastBookUpdateAt > 0 && now - lastBookUpdateAt > 3000) ||
+        (lastConnectAt > 0 && now - lastConnectAt > 3000));
+    if (stale) {
       hadStaleRef.current = true;
     }
-  }, [bookStale]);
+  }, [connectionStatus, lastBookUpdateAt, lastConnectAt, now]);
 
   return (
     <div className="app" onContextMenu={(event) => event.preventDefault()}>
