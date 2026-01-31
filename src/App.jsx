@@ -364,6 +364,21 @@ function App() {
   }, [apiGet, config, log, playNotifySound]);
 
   useEffect(() => {
+    if (!tenders.length) return;
+    setTenderPrices((prev) => {
+      const next = { ...prev };
+      tenders.forEach((tender) => {
+        if (!tender.is_fixed_bid && next[tender.tender_id] === undefined) {
+          if (tender.price != null) {
+            next[tender.tender_id] = tender.price;
+          }
+        }
+      });
+      return next;
+    });
+  }, [tenders]);
+
+  useEffect(() => {
     if (securities.length && !selectedTicker) {
       setSelectedTicker(securities[0]?.ticker || "");
     }
@@ -607,9 +622,10 @@ function App() {
     try {
       let payload = {};
       if (!tender.is_fixed_bid) {
-        const priceValue = Number(tenderPrices[tender.tender_id]);
+        const fallback = tender.price != null ? Number(tender.price) : null;
+        const priceValue = Number(tenderPrices[tender.tender_id] ?? fallback);
         if (!priceValue) {
-          log("Enter a tender price before accepting.");
+          notify("Enter a tender price before accepting.", "info");
           return;
         }
         payload = { price: priceValue };
@@ -1193,8 +1209,7 @@ function App() {
                       >
                         <span
                           className="book-cell bid"
-                          onContextMenu={(event) => {
-                            event.preventDefault();
+                          onClick={() => {
                             markBookInteraction();
                             placeQuickOrder("BUY", row.price);
                           }}
@@ -1211,7 +1226,14 @@ function App() {
                           ) : null}
                           <span className="book-value">{formatQty(row.bidQty)}</span>
                         </span>
-                        <span className={`price ${row.isMid ? "mid" : ""}`}>
+                        <span
+                          className={`price ${row.isMid ? "mid" : ""}`}
+                          onClick={() => {
+                            markBookInteraction();
+                            const side = row.price <= midPrice ? "BUY" : "SELL";
+                            placeQuickOrder(side, row.price);
+                          }}
+                        >
                           {row.price.toFixed(quotedDecimals)}
                         </span>
                         <span
