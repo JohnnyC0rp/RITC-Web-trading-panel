@@ -1263,7 +1263,7 @@ function App() {
                 y: fillMarkers.opens.map((fill) => fill.vwap ?? fill.price),
                 marker: {
                   size: 10,
-                  symbol: "circle-open",
+                  symbol: "triangle-up",
                   color: "#22c55e",
                   line: { width: 2, color: "#22c55e" },
                 },
@@ -1280,7 +1280,7 @@ function App() {
                 y: fillMarkers.closes.map((fill) => fill.vwap ?? fill.price),
                 marker: {
                   size: 10,
-                  symbol: "x",
+                  symbol: "triangle-down",
                   color: "#ef4444",
                   line: { width: 2, color: "#ef4444" },
                 },
