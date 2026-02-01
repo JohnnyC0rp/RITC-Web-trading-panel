@@ -57,6 +57,15 @@ const formatStamp = (date) => {
   )}`;
 };
 
+const formatHost = (rawUrl) => {
+  try {
+    const parsed = new URL(rawUrl);
+    return `${parsed.hostname}${parsed.port ? `:${parsed.port}` : ""}`;
+  } catch {
+    return rawUrl;
+  }
+};
+
 const formatQty = (value) => {
   if (value === null || value === undefined || Number.isNaN(value)) return "";
   const formatted = new Intl.NumberFormat("en-US", {
@@ -1525,15 +1534,15 @@ function App() {
 
   const canConnect = mode === "local" ? localConfig.apiKey : remoteConfig.authHeader;
   const isCaseStopped = connectionStatus === "Connected" && caseInfo?.status === "STOPPED";
-  // Status copy tweak: show "stopped" without sounding alarmist (yellow is enough drama). 😅
-  const statusLabel = connectionStatus;
+  // Status copy tweak: show "idling" without sounding alarmist (yellow is enough drama). 😅
+  const statusLabel = isCaseStopped ? "Connected, idling" : connectionStatus;
   const statusClass = isCaseStopped
     ? "warning"
     : connectionStatus === "Connected"
       ? "online"
       : "offline";
   const statusDetail = isCaseStopped
-    ? "Connected but case currently stopped"
+    ? "Connected, idling."
     : caseInfo?.name || "No case selected";
   const newsText = newsItems.length
     ? newsItems.map((item) => item.text).join(" • ")
@@ -1556,6 +1565,33 @@ function App() {
       : 0;
   const tickHue = Number.isFinite(tickProgress) ? 120 * (1 - tickProgress) : 120;
   const tickColor = `hsl(${tickHue}, 70%, 45%)`;
+  const routeSteps = useMemo(() => {
+    if (connectionStatus !== "Connected") return [];
+    if (mode === "local") {
+      const target = formatHost(localConfig.baseUrl);
+      return useProxyLocal
+        ? ["UI", "localhost:3001", target]
+        : ["UI", target];
+    }
+    const target = formatHost(remoteConfig.baseUrl);
+    if (!useProxyRemote) return ["UI", target];
+    if (proxyTargetRemote === "remote") {
+      const proxyHost = cloudProxyUrl.trim()
+        ? formatHost(cloudProxyUrl.trim())
+        : "remote-proxy";
+      return ["UI", proxyHost, target];
+    }
+    return ["UI", "localhost:3001", target];
+  }, [
+    cloudProxyUrl,
+    connectionStatus,
+    localConfig.baseUrl,
+    mode,
+    proxyTargetRemote,
+    remoteConfig.baseUrl,
+    useProxyLocal,
+    useProxyRemote,
+  ]);
 
   useEffect(() => {
     const stale =
@@ -1638,6 +1674,15 @@ function App() {
           </div>
           <span className="status-detail">{statusDetail}</span>
           {timeTicker && <span className="status-meta">{timeTicker}</span>}
+          {routeSteps.length > 0 && (
+            <div className="status-route">
+              {routeSteps.map((step, index) => (
+                <span key={`${step}-${index}`} className="status-route__step">
+                  {step}
+                </span>
+              ))}
+            </div>
+          )}
           {ticksLeft !== null && (
             <>
               <div className="tick-bar" aria-label={`Ticks left: ${ticksLeft}`}>

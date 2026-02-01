@@ -141,6 +141,27 @@
   color: #6b7280;
 }
 
+.status-route {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: #64748b;
+  justify-content: flex-end;
+}
+
+.status-route__step {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.status-route__step + .status-route__step::before {
+  content: "→";
+  margin-right: 6px;
+  color: rgba(15, 23, 42, 0.45);
+}
+
 .pnl-grid {
   display: flex;
   flex-wrap: wrap;
