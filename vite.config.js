@@ -6,7 +6,7 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   build: {
-    outDir: 'compiled_static_page',
+    outDir: 'docs',
     emptyOutDir: true,
   },
   server: {

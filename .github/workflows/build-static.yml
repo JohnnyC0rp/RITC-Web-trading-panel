@@ -31,10 +31,10 @@ jobs:
       - name: Build production bundle
         run: npm run build
 
-      - name: Commit compiled_static_page
+      - name: Commit docs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add compiled_static_page
-          git diff --cached --quiet || git commit -m "chore: rebuild compiled_static_page"
+          git add docs
+          git diff --cached --quiet || git commit -m "chore: rebuild docs"
           git push origin main
