@@ -136,6 +136,7 @@ const getVolumeTone = (ratio) => {
 };
 
 function App() {
+  const logoUrl = `${import.meta.env.BASE_URL}logo-transparent.png`;
   const [mode, setMode] = useState("local");
   const [localConfig, setLocalConfig] = useState(DEFAULT_LOCAL);
   const [remoteConfig, setRemoteConfig] = useState(DEFAULT_REMOTE);
@@ -1663,7 +1664,7 @@ function App() {
         <div>
           <p className="hero-eyebrow">RIT Trading Client</p>
           <div className="hero-title">
-            <img className="hero-logo" src="/logo-transparent.png" alt="Privod Johnny logo" />
+            <img className="hero-logo" src={logoUrl} alt="Privod Johnny logo" />
             <h1>Privod Johnny</h1>
           </div>
           <p className="hero-subtitle">A modern trading cockpit with live order book, candles, and fast order entry.</p>
