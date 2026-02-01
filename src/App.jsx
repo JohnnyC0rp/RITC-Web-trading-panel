@@ -172,6 +172,7 @@ function App() {
         connect: 520,
         tender: 980,
         alert: 880,
+        news: 740,
       };
       osc.frequency.value = frequencies[tone] || 660;
       gain.gain.value = 0.06;
@@ -510,16 +511,33 @@ function App() {
             id: Number.isFinite(sortKey) && sortKey !== 0 ? sortKey : `${Date.now()}-${Math.random()}`,
             sortKey,
             text,
+            receivedAt: Date.now(),
           };
         });
         if (!stop) {
+          let didPing = false;
           setNewsItems((prev) => {
             const map = new Map(prev.map((entry) => [entry.id, entry]));
-            normalized.forEach((entry) => map.set(entry.id, entry));
+            normalized.forEach((entry) => {
+              if (!map.has(entry.id)) {
+                didPing = true;
+                map.set(entry.id, entry);
+                return;
+              }
+              const existing = map.get(entry.id);
+              map.set(entry.id, {
+                ...entry,
+                receivedAt: existing?.receivedAt ?? entry.receivedAt,
+              });
+            });
             const merged = Array.from(map.values());
             merged.sort((a, b) => (a.sortKey || 0) - (b.sortKey || 0));
-            return merged.slice(-60);
+            const cutoff = Date.now() - 30000;
+            return merged.filter((item) => (item.receivedAt ?? 0) >= cutoff).slice(-60);
           });
+          if (didPing) {
+            playSound("news");
+          }
           const maxKey = Math.max(
             ...normalized.map((entry) => (Number.isFinite(entry.sortKey) ? entry.sortKey : -1))
           );
@@ -957,10 +975,10 @@ function App() {
   const statusDetail = isCaseStopped
     ? "Connected but case currently stopped"
     : caseInfo?.name || "No case selected";
-  const newsText = newsItems.length
-    ? newsItems.map((item) => item.text).join(" • ")
-    : Array.from({ length: 3 }, () => "News feed idle").join(" • ");
-  const newsLoop = Array.from({ length: 6 }, () => newsText).join(" • ");
+  const newsRows = newsItems.length
+    ? newsItems
+    : [{ id: "idle", text: Array.from({ length: 3 }, () => "News feed idle").join(" • ") }];
+  const buildNewsLoop = (text) => Array.from({ length: 6 }, () => text).join(" • ");
   const timeTicker = caseInfo
     ? `Tick ${caseInfo.tick ?? "—"} / ${caseInfo.ticks_per_period ?? "—"} • Period ${
         caseInfo.period ?? "—"
@@ -1039,10 +1057,15 @@ function App() {
         ))}
       </div>
       <div className="news-ticker">
-        <div className="news-track">
-          <span>{newsLoop}</span>
-          <span aria-hidden="true">{newsLoop}</span>
-        </div>
+        {newsRows.map((item) => {
+          const loop = buildNewsLoop(item.text);
+          return (
+            <div key={item.id} className="news-track">
+              <span>{loop}</span>
+              <span aria-hidden="true">{loop}</span>
+            </div>
+          );
+        })}
       </div>
       <header className="hero">
         <div>
