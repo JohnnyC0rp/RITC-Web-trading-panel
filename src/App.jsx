@@ -3,6 +3,9 @@ import Plot from "react-plotly.js";
 import ApiLab from "./components/ApiLab";
 import "./App.css";
 
+const encodeBasic = (username, password) =>
+  `Basic ${btoa(`${username}:${password}`)}`;
+
 const DEFAULT_LOCAL = {
   baseUrl: "http://localhost:9999",
   apiKey: "",
@@ -11,6 +14,9 @@ const DEFAULT_LOCAL = {
 const DEFAULT_REMOTE = {
   baseUrl: "http://flserver.rotman.utoronto.ca:16530",
   authHeader: "",
+  username: "",
+  password: "",
+  authMode: "header",
 };
 
 const POLL_CASE_MS = 333;
@@ -350,6 +356,10 @@ function App() {
       proxyTargetRemote === "remote" && cloudProxyUrl.trim()
         ? cloudProxyUrl.trim()
         : "http://localhost:3001";
+    const remoteAuthHeader =
+      remoteConfig.authMode === "header"
+        ? remoteConfig.authHeader
+        : encodeBasic(remoteConfig.username, remoteConfig.password);
     const cfg =
       mode === "local"
         ? {
@@ -362,7 +372,7 @@ function App() {
         : {
             baseUrl: useProxy ? remoteProxyBase : remoteConfig.baseUrl,
             headers: {
-              Authorization: remoteConfig.authHeader,
+              Authorization: remoteAuthHeader,
               ...(useProxy ? { "X-Proxy-Target": "remote" } : {}),
             },
           };
@@ -1533,7 +1543,12 @@ function App() {
     ];
   }, [unrealizedSeries]);
 
-  const canConnect = mode === "local" ? localConfig.apiKey : remoteConfig.authHeader;
+  const canConnect =
+    mode === "local"
+      ? localConfig.apiKey
+      : remoteConfig.authMode === "header"
+        ? remoteConfig.authHeader
+        : remoteConfig.username && remoteConfig.password;
   const isCaseStopped = connectionStatus === "Connected" && caseInfo?.status === "STOPPED";
   // Status copy tweak: show "idling" without sounding alarmist (yellow is enough drama). 😅
   const statusLabel = isCaseStopped ? "Connected, idling" : connectionStatus;
@@ -1764,15 +1779,51 @@ function App() {
                   enabled, the proxy may still route to the port in <code>creds/rit_rest.json</code>.
                 </div>
                 <label>
-                  Authorization
-                  <input
-                    value={remoteConfig.authHeader}
+                  Auth mode
+                  <select
+                    value={remoteConfig.authMode}
                     onChange={(event) =>
-                      setRemoteConfig((prev) => ({ ...prev, authHeader: event.target.value }))
+                      setRemoteConfig((prev) => ({ ...prev, authMode: event.target.value }))
                     }
-                    placeholder="Basic XXXXXXXXXX"
-                  />
+                  >
+                    <option value="header">Authorization header</option>
+                    <option value="basic">Username + password</option>
+                  </select>
                 </label>
+                {remoteConfig.authMode === "header" ? (
+                  <label>
+                    Authorization
+                    <input
+                      value={remoteConfig.authHeader}
+                      onChange={(event) =>
+                        setRemoteConfig((prev) => ({ ...prev, authHeader: event.target.value }))
+                      }
+                      placeholder="Basic XXXXXXXXXX"
+                    />
+                  </label>
+                ) : (
+                  <>
+                    <label>
+                      Username
+                      <input
+                        value={remoteConfig.username}
+                        onChange={(event) =>
+                          setRemoteConfig((prev) => ({ ...prev, username: event.target.value }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      Password
+                      <input
+                        type="password"
+                        value={remoteConfig.password}
+                        onChange={(event) =>
+                          setRemoteConfig((prev) => ({ ...prev, password: event.target.value }))
+                        }
+                      />
+                    </label>
+                  </>
+                )}
                 <label className="checkbox-row">
                   <input
                     type="checkbox"
