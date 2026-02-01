@@ -141,6 +141,20 @@
   color: #6b7280;
 }
 
+.tick-bar {
+  width: 220px;
+  height: 6px;
+  background: rgba(15, 23, 42, 0.12);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.tick-bar__fill {
+  height: 100%;
+  background: linear-gradient(90deg, #06b6d4 0%, #10b981 100%);
+  transition: width 220ms ease;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(280px, 360px) 1fr;

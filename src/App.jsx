@@ -14,7 +14,7 @@ const DEFAULT_REMOTE = {
 };
 
 const POLL_CASE_MS = 333;
-const POLL_BOOK_MS = 800;
+const POLL_BOOK_MS = 333;
 const POLL_SECURITIES_MS = 2500;
 const POLL_ORDERS_MS = 2500;
 
@@ -108,6 +108,7 @@ function App() {
   const bookScrollRef = useRef(null);
   const openOrdersRef = useRef([]);
   const cancelledOrdersRef = useRef(new Map());
+  const tickAlertRef = useRef({ period: null, fired: new Set() });
   const audioRef = useRef(null);
   const newsSinceRef = useRef(null);
   const tenderIdsRef = useRef(new Set());
@@ -170,6 +171,7 @@ function App() {
         notify: 660,
         connect: 520,
         tender: 980,
+        alert: 880,
       };
       osc.frequency.value = frequencies[tone] || 660;
       gain.gain.value = 0.06;
@@ -183,10 +185,10 @@ function App() {
   }, []);
 
   const notify = useCallback(
-    (message, tone = "info") => {
+    (message, tone = "info", sound = "notify") => {
       const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       setNotifications((prev) => [...prev, { id, message, tone }]);
-      playSound("notify");
+      playSound(sound);
       setTimeout(() => {
         setNotifications((prev) => prev.filter((item) => item.id !== id));
       }, 4200);
@@ -337,6 +339,25 @@ function App() {
       clearInterval(id);
     };
   }, [apiGet, config, log, maybeSuggestProxy]);
+
+  useEffect(() => {
+    if (connectionStatus !== "Connected" || !caseInfo) return;
+    const ticksPerPeriod = Number(caseInfo.ticks_per_period);
+    const tick = Number(caseInfo.tick);
+    const period = caseInfo.period ?? null;
+    if (!Number.isFinite(ticksPerPeriod) || !Number.isFinite(tick) || ticksPerPeriod <= 0) return;
+    const ticksLeft = Math.max(ticksPerPeriod - tick, 0);
+    if (tickAlertRef.current.period !== period) {
+      tickAlertRef.current.period = period;
+      tickAlertRef.current.fired = new Set();
+    }
+    const thresholds = [100, 50, 10];
+    if (thresholds.includes(ticksLeft) && !tickAlertRef.current.fired.has(ticksLeft)) {
+      tickAlertRef.current.fired.add(ticksLeft);
+      // One alert per threshold per period — no time-traveling back to spam it. 🕰️
+      notify(`Tick alert: ${ticksLeft} ticks left in period ${period}.`, "warning", "alert");
+    }
+  }, [caseInfo, connectionStatus, notify]);
 
   useEffect(() => {
     if (!config) return undefined;
@@ -945,6 +966,16 @@ function App() {
         caseInfo.period ?? "—"
       } / ${caseInfo.total_periods ?? "—"}`
     : "";
+  const ticksPerPeriod = caseInfo?.ticks_per_period ?? null;
+  const currentTick = caseInfo?.tick ?? null;
+  const ticksLeft =
+    ticksPerPeriod != null && currentTick != null
+      ? Math.max(Number(ticksPerPeriod) - Number(currentTick), 0)
+      : null;
+  const tickProgress =
+    ticksPerPeriod && currentTick != null
+      ? Math.min(Math.max(Number(currentTick) / Number(ticksPerPeriod), 0), 1)
+      : 0;
 
   useEffect(() => {
     const stale =
@@ -1028,6 +1059,17 @@ function App() {
           </div>
           <span className="status-detail">{statusDetail}</span>
           {timeTicker && <span className="status-meta">{timeTicker}</span>}
+          {ticksLeft !== null && (
+            <>
+              <div className="tick-bar" aria-label={`Ticks left: ${ticksLeft}`}>
+                <div
+                  className="tick-bar__fill"
+                  style={{ width: `${Math.round(tickProgress * 100)}%` }}
+                />
+              </div>
+              <span className="status-meta">Ticks left: {ticksLeft}</span>
+            </>
+          )}
         </div>
       </header>
 
