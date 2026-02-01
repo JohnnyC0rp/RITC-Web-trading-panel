@@ -16,7 +16,7 @@ const DEFAULT_REMOTE = {
   authHeader: "",
   username: "",
   password: "",
-  authMode: "header",
+  authMode: "basic",
 };
 
 const POLL_CASE_MS = 333;
@@ -143,7 +143,7 @@ const getVolumeTone = (ratio) => {
 
 function App() {
   const logoUrl = `${import.meta.env.BASE_URL}logo-transparent.png`;
-  const [mode, setMode] = useState("local");
+  const [mode, setMode] = useState("remote");
   const [localConfig, setLocalConfig] = useState(DEFAULT_LOCAL);
   const [remoteConfig, setRemoteConfig] = useState(DEFAULT_REMOTE);
   const [activeConfig, setActiveConfig] = useState(null);
