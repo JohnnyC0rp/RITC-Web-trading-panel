@@ -167,19 +167,24 @@ function App() {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = "sine";
-      const frequencies = {
-        notify: 660,
-        connect: 520,
-        tender: 980,
-        alert: 880,
-        news: 740,
+      const presets = {
+        notify: { freq: 660, type: "sine", gain: 0.06, duration: 0.12 },
+        connect: { freq: 520, type: "sine", gain: 0.06, duration: 0.16 },
+        tender: { freq: 980, type: "triangle", gain: 0.06, duration: 0.14 },
+        alert: { freq: 880, type: "square", gain: 0.07, duration: 0.18 },
+        news: { freq: 740, type: "sawtooth", gain: 0.05, duration: 0.2 },
+        tickShort: { freq: 620, type: "sine", gain: 0.05, duration: 0.06 },
+        tickMid: { freq: 680, type: "sine", gain: 0.05, duration: 0.1 },
+        tickLong: { freq: 720, type: "sine", gain: 0.05, duration: 0.28 },
       };
-      osc.frequency.value = frequencies[tone] || 660;
-      gain.gain.value = 0.06;
+      const preset = presets[tone] || presets.notify;
+      osc.type = preset.type;
+      osc.frequency.value = preset.freq;
+      gain.gain.value = preset.gain;
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
-      osc.stop(ctx.currentTime + 0.12);
+      osc.stop(ctx.currentTime + preset.duration);
     } catch (error) {
       // If autoplay is blocked, we stay silent.
     }
@@ -358,7 +363,13 @@ function App() {
       // One alert per threshold per period — no time-traveling back to spam it. 🕰️
       notify(`Tick alert: ${ticksLeft} ticks left in period ${period}.`, "warning", "alert");
     }
-  }, [caseInfo, connectionStatus, notify]);
+    const finalCountdown = [3, 2, 1];
+    if (finalCountdown.includes(ticksLeft) && !tickAlertRef.current.fired.has(ticksLeft)) {
+      tickAlertRef.current.fired.add(ticksLeft);
+      const sound = ticksLeft === 3 ? "tickShort" : ticksLeft === 2 ? "tickMid" : "tickLong";
+      playSound(sound);
+    }
+  }, [caseInfo, connectionStatus, notify, playSound]);
 
   useEffect(() => {
     if (!config) return undefined;
@@ -559,6 +570,13 @@ function App() {
       clearInterval(id);
     };
   }, [apiGet, config, log]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setNewsItems((prev) => prev.filter((item) => Date.now() - (item.receivedAt ?? 0) < 30000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!config || !selectedTicker) return undefined;
@@ -975,10 +993,10 @@ function App() {
   const statusDetail = isCaseStopped
     ? "Connected but case currently stopped"
     : caseInfo?.name || "No case selected";
-  const newsRows = newsItems.length
-    ? newsItems
-    : [{ id: "idle", text: Array.from({ length: 3 }, () => "News feed idle").join(" • ") }];
-  const buildNewsLoop = (text) => Array.from({ length: 6 }, () => text).join(" • ");
+  const newsText = newsItems.length
+    ? newsItems.map((item) => item.text).join(" • ")
+    : Array.from({ length: 3 }, () => "News feed idle").join(" • ");
+  const newsLoop = Array.from({ length: 6 }, () => newsText).join(" • ");
   const timeTicker = caseInfo
     ? `Tick ${caseInfo.tick ?? "—"} / ${caseInfo.ticks_per_period ?? "—"} • Period ${
         caseInfo.period ?? "—"
@@ -1057,15 +1075,10 @@ function App() {
         ))}
       </div>
       <div className="news-ticker">
-        {newsRows.map((item) => {
-          const loop = buildNewsLoop(item.text);
-          return (
-            <div key={item.id} className="news-track">
-              <span>{loop}</span>
-              <span aria-hidden="true">{loop}</span>
-            </div>
-          );
-        })}
+        <div className="news-track">
+          <span>{newsLoop}</span>
+          <span aria-hidden="true">{newsLoop}</span>
+        </div>
       </div>
       <header className="hero">
         <div>

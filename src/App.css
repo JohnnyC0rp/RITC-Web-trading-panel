@@ -79,8 +79,6 @@
   margin: -28px -28px 0;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
   transition: background 220ms ease, box-shadow 220ms ease;
-  display: grid;
-  gap: 6px;
 }
 
 .news-track {
@@ -89,7 +87,6 @@
   white-space: nowrap;
   animation: news-scroll 24s linear infinite;
   width: max-content;
-  padding: 0 18px;
 }
 
 .news-track span {
