@@ -13,7 +13,7 @@ const DEFAULT_REMOTE = {
   authHeader: "",
 };
 
-const POLL_CASE_MS = 1500;
+const POLL_CASE_MS = 333;
 const POLL_BOOK_MS = 800;
 const POLL_SECURITIES_MS = 2500;
 const POLL_ORDERS_MS = 2500;
