@@ -185,8 +185,10 @@ function App() {
   const hadStaleRef = useRef(false);
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
-  const [proxyTargetRemote, setProxyTargetRemote] = useState("local");
-  const [cloudProxyUrl, setCloudProxyUrl] = useState("");
+  const [proxyTargetRemote, setProxyTargetRemote] = useState("remote");
+  const [cloudProxyUrl, setCloudProxyUrl] = useState(
+    "https://privod-johnny-ritc-api-cors-proxy.matveyrotte.workers.dev"
+  );
   const [chartView, setChartView] = useState({});
   const [showChartSettings, setShowChartSettings] = useState(false);
   const [showRangeSlider, setShowRangeSlider] = useState(false);
