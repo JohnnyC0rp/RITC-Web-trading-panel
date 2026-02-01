@@ -93,6 +93,7 @@ function App() {
   const [selectedTicker, setSelectedTicker] = useState("");
   const [book, setBook] = useState(null);
   const [history, setHistory] = useState([]);
+  const [historyEpoch, setHistoryEpoch] = useState(0);
   const [orders, setOrders] = useState([]);
   const [terminalUnlocked, setTerminalUnlocked] = useState(false);
   const [showTerminalPrompt, setShowTerminalPrompt] = useState(false);
@@ -108,6 +109,7 @@ function App() {
   const bookScrollRef = useRef(null);
   const openOrdersRef = useRef([]);
   const cancelledOrdersRef = useRef(new Map());
+  const lastCaseRef = useRef({ tick: null, period: null });
   const tickAlertRef = useRef({ period: null, fired: new Set() });
   const audioRef = useRef(null);
   const newsSinceRef = useRef(null);
@@ -319,6 +321,7 @@ function App() {
     setOrders([]);
     setLastConnectAt(0);
     setLastBookUpdateAt(0);
+    lastCaseRef.current = { tick: null, period: null };
     log("Disconnected");
   };
 
@@ -370,6 +373,30 @@ function App() {
       playSound(sound);
     }
   }, [caseInfo, connectionStatus, notify, playSound]);
+
+  useEffect(() => {
+    if (!caseInfo) return;
+    const currTick = Number(caseInfo.tick);
+    const currPeriod = caseInfo.period ?? null;
+    const prev = lastCaseRef.current;
+    const hasPrev = prev.tick !== null && prev.tick !== undefined;
+    const tickReset =
+      hasPrev &&
+      Number.isFinite(currTick) &&
+      (currTick < Number(prev.tick) ||
+        (currTick === 0 && prev.tick !== 0) ||
+        (prev.period !== null && currPeriod !== prev.period && currTick === 0));
+    if (tickReset) {
+      setHistory([]);
+      setChartView({});
+      // Fresh period, fresh candles — like a reset button, but friendlier. ✨
+      setHistoryEpoch((value) => value + 1);
+    }
+    lastCaseRef.current = {
+      tick: Number.isFinite(currTick) ? currTick : null,
+      period: currPeriod,
+    };
+  }, [caseInfo]);
 
   useEffect(() => {
     if (!config) return undefined;
@@ -644,7 +671,7 @@ function App() {
     return () => {
       stop = true;
     };
-  }, [apiGet, config, log, selectedTicker]);
+  }, [apiGet, config, historyEpoch, log, selectedTicker]);
 
   const handleOrderSubmit = async (event) => {
     event.preventDefault();
@@ -1012,6 +1039,8 @@ function App() {
     ticksPerPeriod && currentTick != null
       ? Math.min(Math.max(Number(currentTick) / Number(ticksPerPeriod), 0), 1)
       : 0;
+  const tickHue = Number.isFinite(tickProgress) ? 120 * (1 - tickProgress) : 120;
+  const tickColor = `hsl(${tickHue}, 70%, 45%)`;
 
   useEffect(() => {
     const stale =
@@ -1100,7 +1129,7 @@ function App() {
               <div className="tick-bar" aria-label={`Ticks left: ${ticksLeft}`}>
                 <div
                   className="tick-bar__fill"
-                  style={{ width: `${Math.round(tickProgress * 100)}%` }}
+                  style={{ width: `${Math.round(tickProgress * 100)}%`, background: tickColor }}
                 />
               </div>
               <span className="status-meta">Ticks left: {ticksLeft}</span>
