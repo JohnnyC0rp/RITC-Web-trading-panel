@@ -1355,10 +1355,14 @@ function App() {
                 x: fillMarkers.opens.map((fill) => toBucketTick(Number(fill.tick))),
                 y: fillMarkers.opens.map((fill) => fill.vwap ?? fill.price),
                 marker: {
-                  size: 10,
-                  symbol: "triangle-up",
-                  color: "#22c55e",
-                  line: { width: 2, color: "#22c55e" },
+                  size: 11,
+                  symbol: fillMarkers.opens.map((fill) =>
+                    fill.action === "BUY" ? "triangle-up" : "triangle-down"
+                  ),
+                  color: fillMarkers.opens.map((fill) =>
+                    fill.action === "BUY" ? "#22c55e" : "#ef4444"
+                  ),
+                  line: { width: 1.5, color: "rgba(15, 23, 42, 0.25)" },
                 },
               },
             ]
@@ -1372,10 +1376,15 @@ function App() {
                 x: fillMarkers.closes.map((fill) => toBucketTick(Number(fill.tick))),
                 y: fillMarkers.closes.map((fill) => fill.vwap ?? fill.price),
                 marker: {
-                  size: 10,
-                  symbol: "triangle-down",
-                  color: "#ef4444",
-                  line: { width: 2, color: "#ef4444" },
+                  size: 9,
+                  symbol: fillMarkers.closes.map((fill) =>
+                    fill.action === "BUY" ? "triangle-up" : "triangle-down"
+                  ),
+                  color: fillMarkers.closes.map((fill) =>
+                    fill.action === "BUY" ? "#22c55e" : "#ef4444"
+                  ),
+                  line: { width: 1.2, color: "rgba(15, 23, 42, 0.25)" },
+                  opacity: 0.85,
                 },
               },
             ]
@@ -1453,7 +1462,7 @@ function App() {
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "#F6F2EA",
     margin: { l: 40, r: 16, t: 14, b: 28 },
-    height: 210,
+    height: 230,
     xaxis: { showgrid: false, tickfont: { size: 9 } },
     yaxis: { tickfont: { size: 10 }, zeroline: true },
   };
@@ -1466,10 +1475,17 @@ function App() {
   const latestUnrealized = unrealizedSeries.length
     ? unrealizedSeries[unrealizedSeries.length - 1]?.value
     : null;
-  const dealsList = useMemo(() => {
-    const list = [...tasTrades].sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
+  const myExecs = useMemo(() => {
+    const list = fills
+      .filter((fill) => (selectedTicker ? fill.ticker === selectedTicker : true))
+      .sort((a, b) => {
+        const tickA = Number(a.tick ?? 0);
+        const tickB = Number(b.tick ?? 0);
+        if (tickA !== tickB) return tickB - tickA;
+        return Number(b.order_id ?? 0) - Number(a.order_id ?? 0);
+      });
     return list.slice(0, 120);
-  }, [tasTrades]);
+  }, [fills, selectedTicker]);
 
   const realizedData = useMemo(() => {
     if (!realizedSeries.length) return [];
@@ -1536,8 +1552,7 @@ function App() {
   useEffect(() => {
     const stale =
       connectionStatus === "Connected" &&
-      ((lastBookUpdateAt > 0 && now - lastBookUpdateAt > 3000) ||
-        (lastConnectAt > 0 && now - lastConnectAt > 3000));
+      lastBookUpdateAt > 0 && now - lastBookUpdateAt > 3000;
     if (stale) {
       hadStaleRef.current = true;
     }
@@ -1967,22 +1982,26 @@ function App() {
           </section>
 
           <section className="card" style={{ marginBottom: "20px" }}>
-            <div className="card-title">Deals Tape</div>
+            <div className="card-title">My Executions</div>
             <div className="orders-list">
-              {dealsList.length === 0 ? (
-                <div className="muted">No deals yet.</div>
+              {myExecs.length === 0 ? (
+                <div className="muted">No executions yet.</div>
               ) : (
-                dealsList.map((deal) => (
-                  <div key={deal.id} className="order-row">
-                    <div>
-                      <strong>{selectedTicker}</strong>
-                      <div className="muted">
-                        Tick {deal.tick} · Qty {formatQty(deal.quantity)}
+                myExecs.map((fill) => {
+                  const qty = Number(fill.quantity_filled ?? fill.quantity ?? fill.qty ?? 0);
+                  const price = fill.vwap ?? fill.price;
+                  return (
+                    <div key={fill.order_id ?? `${fill.ticker}-${fill.tick}-${price}`} className="order-row">
+                      <div>
+                        <strong>{fill.ticker}</strong>
+                        <div className="muted">
+                          {fill.action} · Qty {formatQty(qty)} · Tick {fill.tick}
+                        </div>
                       </div>
+                      <div className="muted">{formatNumber(price)}</div>
                     </div>
-                    <div className="muted">{formatNumber(deal.price)}</div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </section>
