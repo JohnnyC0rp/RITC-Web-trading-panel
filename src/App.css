@@ -141,6 +141,13 @@
   color: #6b7280;
 }
 
+.pnl-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
 .tick-bar {
   width: 220px;
   height: 6px;

@@ -17,6 +17,7 @@ const POLL_CASE_MS = 333;
 const POLL_BOOK_MS = 333;
 const POLL_SECURITIES_MS = 2500;
 const POLL_ORDERS_MS = 2500;
+const POLL_TRADER_MS = 1000;
 
 const normalizeBaseUrl = (url) =>
   url.replace(/\/+$/, "").replace(/\/v1$/i, "").replace(/\/v1\/$/i, "");
@@ -95,6 +96,14 @@ function App() {
   const [history, setHistory] = useState([]);
   const [historyEpoch, setHistoryEpoch] = useState(0);
   const [orders, setOrders] = useState([]);
+  const [traderInfo, setTraderInfo] = useState(null);
+  const [pnlSeries, setPnlSeries] = useState([]);
+  const [demoStrategy, setDemoStrategy] = useState({
+    enabled: false,
+    intervalMs: 3000,
+    quantity: 1,
+    maxPos: 50,
+  });
   const [terminalUnlocked, setTerminalUnlocked] = useState(false);
   const [showTerminalPrompt, setShowTerminalPrompt] = useState(false);
   const [terminalLines, setTerminalLines] = useState([]);
@@ -111,6 +120,14 @@ function App() {
   const cancelledOrdersRef = useRef(new Map());
   const lastCaseRef = useRef({ tick: null, period: null });
   const tickAlertRef = useRef({ period: null, fired: new Set() });
+  const pnlBaseRef = useRef(null);
+  const marketSnapRef = useRef({
+    last: null,
+    mid: null,
+    position: 0,
+    bestBid: null,
+    bestAsk: null,
+  });
   const audioRef = useRef(null);
   const newsSinceRef = useRef(null);
   const tenderIdsRef = useRef(new Set());
@@ -319,6 +336,9 @@ function App() {
     setBook(null);
     setHistory([]);
     setOrders([]);
+    setTraderInfo(null);
+    setPnlSeries([]);
+    pnlBaseRef.current = null;
     setLastConnectAt(0);
     setLastBookUpdateAt(0);
     lastCaseRef.current = { tick: null, period: null };
@@ -350,6 +370,41 @@ function App() {
   }, [apiGet, config, log, maybeSuggestProxy]);
 
   useEffect(() => {
+    if (!config) return undefined;
+    let stop = false;
+
+    const pull = async () => {
+      try {
+        const data = await apiGet("/trader");
+        if (stop) return;
+        setTraderInfo(data || null);
+        const nlv = Number(data?.nlv);
+        if (!Number.isFinite(nlv)) return;
+        if (pnlBaseRef.current === null) {
+          pnlBaseRef.current = nlv;
+        }
+        const pnl = nlv - (pnlBaseRef.current ?? nlv);
+        setPnlSeries((prev) => {
+          const next = [...prev, { ts: Date.now(), nlv, pnl }];
+          return next.slice(-600);
+        });
+      } catch (error) {
+        if (!stop && error?.status !== 429) {
+          log(`Trader error: ${error.message}`);
+          maybeSuggestProxy(error);
+        }
+      }
+    };
+
+    pull();
+    const id = setInterval(pull, POLL_TRADER_MS);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, [apiGet, config, log, maybeSuggestProxy]);
+
+  useEffect(() => {
     if (connectionStatus !== "Connected" || !caseInfo) return;
     const ticksPerPeriod = Number(caseInfo.ticks_per_period);
     const tick = Number(caseInfo.tick);
@@ -373,6 +428,48 @@ function App() {
       playSound(sound);
     }
   }, [caseInfo, connectionStatus, notify, playSound]);
+
+  useEffect(() => {
+    if (!demoStrategy.enabled || !config || !selectedTicker) return undefined;
+    let stop = false;
+
+    const run = async () => {
+      if (stop || caseInfo?.status === "STOPPED") return;
+      const snap = marketSnapRef.current;
+      if (!Number.isFinite(snap.mid) || snap.mid === 0) return;
+      const side = snap.last > snap.mid ? "SELL" : "BUY";
+      if (side === "BUY" && snap.position >= demoStrategy.maxPos) return;
+      if (side === "SELL" && snap.position <= -demoStrategy.maxPos) return;
+      try {
+        await apiPost("/orders", {
+          ticker: selectedTicker,
+          type: "MARKET",
+          quantity: demoStrategy.quantity,
+          action: side,
+        });
+        log(`Demo strategy: ${side} ${demoStrategy.quantity} ${selectedTicker} @ MKT`);
+      } catch (error) {
+        log(`Demo strategy error: ${error?.data?.message || error.message}`);
+      }
+    };
+
+    run();
+    const id = setInterval(run, demoStrategy.intervalMs);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, [
+    apiPost,
+    caseInfo?.status,
+    config,
+    demoStrategy.enabled,
+    demoStrategy.intervalMs,
+    demoStrategy.maxPos,
+    demoStrategy.quantity,
+    log,
+    selectedTicker,
+  ]);
 
   useEffect(() => {
     if (!caseInfo) return;
@@ -828,6 +925,17 @@ function App() {
       ? (Number(bestBidPrice) + Number(bestAskPrice)) / 2
       : Number(bestBidPrice || bestAskPrice || lastPrice || 0);
 
+  useEffect(() => {
+    const sec = securities.find((item) => item.ticker === selectedTicker) || {};
+    marketSnapRef.current = {
+      last: Number(sec.last ?? lastPrice ?? 0),
+      mid: Number(midPrice ?? 0),
+      position: Number(sec.position ?? sec.pos ?? sec.qty ?? 0),
+      bestBid: Number(bestBidPrice ?? 0),
+      bestAsk: Number(bestAskPrice ?? 0),
+    };
+  }, [securities, selectedTicker, lastPrice, midPrice, bestBidPrice, bestAskPrice]);
+
   const rowCount = 80;
   const halfRows = Math.floor(rowCount / 2);
   const midTick = toStepTick(midPrice, priceStep);
@@ -1007,6 +1115,32 @@ function App() {
     doubleClick: "reset",
     modeBarButtonsToRemove: ["select2d", "lasso2d"],
   };
+
+  const pnlData = useMemo(() => {
+    if (!pnlSeries.length) return [];
+    return [
+      {
+        type: "scatter",
+        mode: "lines",
+        name: "PnL",
+        x: pnlSeries.map((entry) => new Date(entry.ts)),
+        y: pnlSeries.map((entry) => entry.pnl),
+        line: { color: "#0ea5e9", width: 2 },
+      },
+    ];
+  }, [pnlSeries]);
+
+  const pnlLayout = {
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "#F6F2EA",
+    margin: { l: 40, r: 20, t: 20, b: 30 },
+    height: 220,
+    xaxis: { showgrid: false, tickfont: { size: 9 } },
+    yaxis: { tickfont: { size: 10 }, zeroline: true },
+  };
+
+  const latestPnl = pnlSeries.length ? pnlSeries[pnlSeries.length - 1]?.pnl : null;
+  const latestNlv = traderInfo?.nlv ?? (pnlSeries.length ? pnlSeries[pnlSeries.length - 1]?.nlv : null);
 
   const canConnect = mode === "local" ? localConfig.apiKey : remoteConfig.authHeader;
   const isCaseStopped = connectionStatus === "Connected" && caseInfo?.status === "STOPPED";
@@ -1294,6 +1428,68 @@ function App() {
           </section>
 
           <section className="card">
+            <div className="card-title">Demo Strategy</div>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={demoStrategy.enabled}
+                onChange={(event) =>
+                  setDemoStrategy((prev) => ({ ...prev, enabled: event.target.checked }))
+                }
+              />
+              Enable demo auto-trader
+            </label>
+            <div className="form-grid">
+              <label>
+                Quantity
+                <input
+                  type="number"
+                  min="1"
+                  value={demoStrategy.quantity}
+                  onChange={(event) =>
+                    setDemoStrategy((prev) => ({
+                      ...prev,
+                      quantity: Number(event.target.value) || 1,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                Interval (ms)
+                <input
+                  type="number"
+                  min="500"
+                  step="100"
+                  value={demoStrategy.intervalMs}
+                  onChange={(event) =>
+                    setDemoStrategy((prev) => ({
+                      ...prev,
+                      intervalMs: Number(event.target.value) || 3000,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                Max position
+                <input
+                  type="number"
+                  min="1"
+                  value={demoStrategy.maxPos}
+                  onChange={(event) =>
+                    setDemoStrategy((prev) => ({
+                      ...prev,
+                      maxPos: Number(event.target.value) || 50,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            <div className="muted">
+              Buys when last &lt; mid, sells when last &gt; mid. Uses market orders on the active ticker.
+            </div>
+          </section>
+
+          <section className="card">
             <div className="card-title">Open Orders</div>
             <div className="orders-list">
               {orders.length === 0 && <div className="muted">No open orders yet.</div>}
@@ -1342,6 +1538,25 @@ function App() {
                 <strong>{formatNumber(askPrice)}</strong>
               </div>
             </div>
+          </section>
+
+          <section className="card" style={{ marginBottom: "20px" }}>
+            <div className="card-title">PnL Tracker</div>
+            <div className="pnl-grid">
+              <div className="metric">
+                <span>NLV</span>
+                <strong>{latestNlv != null ? formatNumber(latestNlv, 2) : "—"}</strong>
+              </div>
+              <div className="metric">
+                <span>PnL</span>
+                <strong>{latestPnl != null ? formatNumber(latestPnl, 2) : "—"}</strong>
+              </div>
+            </div>
+            {pnlSeries.length === 0 ? (
+              <div className="muted">No PnL history yet.</div>
+            ) : (
+              <Plot data={pnlData} layout={pnlLayout} config={{ displayModeBar: false }} style={{ width: "100%" }} />
+            )}
           </section>
 
           <section className="card split">
