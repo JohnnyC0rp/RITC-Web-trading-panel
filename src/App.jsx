@@ -1506,6 +1506,31 @@ function App() {
               })}
             </div>
           </section>
+
+          <section className="card">
+            <div className="card-title">Open Positions</div>
+            <div className="orders-list">
+              {securities.filter((sec) => Number(sec.position ?? sec.pos ?? 0) !== 0).length ===
+                0 && <div className="muted">No open positions.</div>}
+              {securities
+                .filter((sec) => Number(sec.position ?? sec.pos ?? 0) !== 0)
+                .map((sec) => {
+                  const position = Number(sec.position ?? sec.pos ?? 0);
+                  return (
+                    <div key={sec.ticker} className="order-row">
+                      <div>
+                        <strong>{sec.ticker}</strong>
+                        <div className="muted">Position: {formatQty(position)}</div>
+                      </div>
+                      <div className="muted">
+                        Last {formatNumber(sec.last)} · Bid {formatNumber(sec.bid)} · Ask{" "}
+                        {formatNumber(sec.ask)}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </section>
         </aside>
 
         <main className="main">
