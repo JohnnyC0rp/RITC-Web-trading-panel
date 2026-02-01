@@ -20,6 +20,7 @@ const POLL_ORDERS_MS = 2500;
 const POLL_TRADER_MS = 1000;
 const POLL_TAS_MS = 1000;
 const POLL_FILLS_MS = 1000;
+const CANDLE_BUCKET = 5;
 
 const normalizeBaseUrl = (url) =>
   url.replace(/\/+$/, "").replace(/\/v1$/i, "").replace(/\/v1\/$/i, "");
@@ -46,6 +47,14 @@ const safeJson = (text) => {
 const formatNumber = (value, decimals = 2) => {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
   return Number(value).toFixed(decimals);
+};
+
+const formatStamp = (date) => {
+  const pad = (value, size = 2) => String(value).padStart(size, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(
+    date.getMilliseconds(),
+    3
+  )}`;
 };
 
 const formatQty = (value) => {
@@ -75,7 +84,13 @@ const toStepTick = (price, step) => Math.round(price / step);
 const fromStepTick = (tick, step, decimals) =>
   Number((tick * step).toFixed(decimals));
 
-const aggregateCandles = (rows, bucketSize = 5) => {
+const toBucketTick = (tick, bucketSize = CANDLE_BUCKET) => {
+  if (!Number.isFinite(tick)) return tick;
+  const bucket = Math.floor((tick - 1) / bucketSize);
+  return bucket * bucketSize + Math.ceil(bucketSize / 2);
+};
+
+const aggregateCandles = (rows, bucketSize = CANDLE_BUCKET) => {
   if (!Array.isArray(rows) || rows.length === 0) return [];
   const sorted = [...rows].sort((a, b) => Number(a.tick ?? 0) - Number(b.tick ?? 0));
   const buckets = new Map();
@@ -85,10 +100,11 @@ const aggregateCandles = (rows, bucketSize = 5) => {
     const bucket = Math.floor((tick - 1) / bucketSize);
     const startTick = bucket * bucketSize + 1;
     const endTick = startTick + bucketSize - 1;
+    const centerTick = startTick + Math.floor(bucketSize / 2);
     const existing = buckets.get(bucket);
     if (!existing) {
       buckets.set(bucket, {
-        tick: endTick,
+        tick: centerTick,
         open: Number(row.open ?? row.close ?? row.price ?? 0),
         high: Number(row.high ?? row.close ?? row.price ?? 0),
         low: Number(row.low ?? row.close ?? row.price ?? 0),
@@ -200,7 +216,7 @@ function App() {
   }, [activeConfig]);
 
   const log = useCallback((message) => {
-    const stamp = new Date().toLocaleTimeString();
+    const stamp = formatStamp(new Date());
     setTerminalLines((prev) => {
       const next = [...prev, `[${stamp}] ${message}`];
       return next.slice(-200);
@@ -1272,7 +1288,7 @@ function App() {
       type: "scatter",
       mode: "markers",
       name: "Deals",
-      x: tasTrades.map((trade) => trade.tick),
+      x: tasTrades.map((trade) => toBucketTick(Number(trade.tick))),
       y: tasTrades.map((trade) => trade.price),
       marker: { size: 6, color: "rgba(148, 163, 184, 0.55)" },
     };
@@ -1336,7 +1352,7 @@ function App() {
                 type: "scatter",
                 mode: "markers",
                 name: "Position Open",
-                x: fillMarkers.opens.map((fill) => fill.tick),
+                x: fillMarkers.opens.map((fill) => toBucketTick(Number(fill.tick))),
                 y: fillMarkers.opens.map((fill) => fill.vwap ?? fill.price),
                 marker: {
                   size: 10,
@@ -1353,7 +1369,7 @@ function App() {
                 type: "scatter",
                 mode: "markers",
                 name: "Position Close",
-                x: fillMarkers.closes.map((fill) => fill.tick),
+                x: fillMarkers.closes.map((fill) => toBucketTick(Number(fill.tick))),
                 y: fillMarkers.closes.map((fill) => fill.vwap ?? fill.price),
                 marker: {
                   size: 10,
@@ -1436,8 +1452,8 @@ function App() {
   const pnlLayout = {
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "#F6F2EA",
-    margin: { l: 40, r: 16, t: 10, b: 26 },
-    height: 160,
+    margin: { l: 40, r: 16, t: 14, b: 28 },
+    height: 210,
     xaxis: { showgrid: false, tickfont: { size: 9 } },
     yaxis: { tickfont: { size: 10 }, zeroline: true },
   };
@@ -1450,6 +1466,10 @@ function App() {
   const latestUnrealized = unrealizedSeries.length
     ? unrealizedSeries[unrealizedSeries.length - 1]?.value
     : null;
+  const dealsList = useMemo(() => {
+    const list = [...tasTrades].sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
+    return list.slice(0, 120);
+  }, [tasTrades]);
 
   const realizedData = useMemo(() => {
     if (!realizedSeries.length) return [];
@@ -1942,6 +1962,27 @@ function App() {
                   config={{ displayModeBar: false }}
                   style={{ width: "100%" }}
                 />
+              )}
+            </div>
+          </section>
+
+          <section className="card" style={{ marginBottom: "20px" }}>
+            <div className="card-title">Deals Tape</div>
+            <div className="orders-list">
+              {dealsList.length === 0 ? (
+                <div className="muted">No deals yet.</div>
+              ) : (
+                dealsList.map((deal) => (
+                  <div key={deal.id} className="order-row">
+                    <div>
+                      <strong>{selectedTicker}</strong>
+                      <div className="muted">
+                        Tick {deal.tick} · Qty {formatQty(deal.quantity)}
+                      </div>
+                    </div>
+                    <div className="muted">{formatNumber(deal.price)}</div>
+                  </div>
+                ))
               )}
             </div>
           </section>
