@@ -12,7 +12,8 @@ const DEFAULT_REMOTE = {
   baseUrl: "http://flserver.rotman.utoronto.ca:10001",
   authHeader: "",
 };
-const DEFAULT_CLOUD_PROXY = "https://your-worker.your-subdomain.workers.dev";
+const DEFAULT_CLOUD_PROXY =
+  "https://privod-johnny-ritc-api-cors-proxy.matveyrotte.workers.dev";
 
 const POLL_CASE_MS = 333;
 const POLL_BOOK_MS = 333;
