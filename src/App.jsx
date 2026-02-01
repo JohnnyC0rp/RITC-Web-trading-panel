@@ -1794,6 +1794,7 @@ function App() {
                   <label>
                     Authorization
                     <input
+                      type="password"
                       value={remoteConfig.authHeader}
                       onChange={(event) =>
                         setRemoteConfig((prev) => ({ ...prev, authHeader: event.target.value }))
