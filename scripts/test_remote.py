@@ -33,8 +33,19 @@ def make_headers(auth_header: str) -> dict:
     return {"Authorization": auth_header, "Accept": "application/json"}
 
 
-def get_book(base_url: str, auth_header: str) -> dict:
-    params = urllib.parse.urlencode({"ticker": TICKER, "limit": 1})
+def normalize_base_url(base_url: str) -> str:
+    return base_url.rstrip("/").removesuffix("/v1")
+
+
+def get_securities(base_url: str, auth_header: str) -> list[dict]:
+    url = f"{base_url}/v1/securities"
+    req = urllib.request.Request(url, headers=make_headers(auth_header))
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return json.load(resp)
+
+
+def get_book(base_url: str, auth_header: str, ticker: str) -> dict:
+    params = urllib.parse.urlencode({"ticker": ticker, "limit": 1})
     url = f"{base_url}/v1/securities/book?{params}"
     req = urllib.request.Request(url, headers=make_headers(auth_header))
     with urllib.request.urlopen(req, timeout=10) as resp:
@@ -46,17 +57,26 @@ def main() -> None:
     base_url = creds.get("dma_base_url") or creds.get("base_url")
     if not base_url:
         raise SystemExit("Missing dma_base_url/base_url in creds.")
+    base_url = normalize_base_url(base_url)
     auth_header = get_auth_header(creds)
     if not auth_header:
         raise SystemExit("Missing authorization_header or username/password in creds.")
+    securities = get_securities(base_url, auth_header)
+    tickers = [sec.get("ticker") for sec in securities if sec.get("ticker")]
+    if not tickers:
+        raise SystemExit("No tickers returned by /securities.")
+    ticker = TICKER if TICKER in tickers else tickers[0]
+    if ticker != TICKER:
+        # Pick the first valid ticker so the script actually works. (CRZY is a diva.)
+        print(f"Ticker '{TICKER}' not found. Using '{ticker}'.")
     while True:
-        book = get_book(base_url, auth_header)
+        book = get_book(base_url, auth_header, ticker)
         bids = book.get("bids") or book.get("bid") or []
         asks = book.get("asks") or book.get("ask") or []
         best_bid = bids[0] if bids else None
         best_ask = asks[0] if asks else None
         ts = time.strftime("%H:%M:%S")
-        print(f"{ts} {TICKER} bid={best_bid} ask={best_ask}")
+        print(f"{ts} {ticker} bid={best_bid} ask={best_ask}")
         time.sleep(1)
 
 
