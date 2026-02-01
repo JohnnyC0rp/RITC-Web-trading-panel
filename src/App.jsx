@@ -185,6 +185,8 @@ function App() {
   const hadStaleRef = useRef(false);
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
+  const [proxyTargetRemote, setProxyTargetRemote] = useState("local");
+  const [cloudProxyUrl, setCloudProxyUrl] = useState("");
   const [chartView, setChartView] = useState({});
   const [showChartSettings, setShowChartSettings] = useState(false);
   const [showRangeSlider, setShowRangeSlider] = useState(false);
@@ -332,6 +334,10 @@ function App() {
     setProxyHint("");
     setConnectionStatus("Connecting...");
     const useProxy = mode === "local" ? useProxyLocal : useProxyRemote;
+    const remoteProxyBase =
+      proxyTargetRemote === "remote" && cloudProxyUrl.trim()
+        ? cloudProxyUrl.trim()
+        : "http://localhost:3001";
     const cfg =
       mode === "local"
         ? {
@@ -342,7 +348,7 @@ function App() {
             },
           }
         : {
-            baseUrl: useProxy ? "http://localhost:3001" : remoteConfig.baseUrl,
+            baseUrl: useProxy ? remoteProxyBase : remoteConfig.baseUrl,
             headers: {
               Authorization: remoteConfig.authHeader,
               ...(useProxy ? { "X-Proxy-Target": "remote" } : {}),
@@ -1722,6 +1728,30 @@ function App() {
                   />
                   Use proxy
                 </label>
+                {useProxyRemote && (
+                  <>
+                    <label>
+                      Proxy target
+                      <select
+                        value={proxyTargetRemote}
+                        onChange={(event) => setProxyTargetRemote(event.target.value)}
+                      >
+                        <option value="local">Local (http://localhost:3001)</option>
+                        <option value="remote">Remote proxy URL</option>
+                      </select>
+                    </label>
+                    {proxyTargetRemote === "remote" && (
+                      <label>
+                        Remote proxy URL
+                        <input
+                          value={cloudProxyUrl}
+                          onChange={(event) => setCloudProxyUrl(event.target.value)}
+                          placeholder="https://your-proxy.example.com"
+                        />
+                      </label>
+                    )}
+                  </>
+                )}
                 <div className="muted">
                   Proxy avoids CORS blocks. Local uses proxy.mjs/proxy.py.
                 </div>
