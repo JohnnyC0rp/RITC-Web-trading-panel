@@ -1707,14 +1707,14 @@ function App() {
                 className={mode === "local" ? "active" : ""}
                 onClick={() => setMode("local")}
               >
-                Local
+                Local (Client)
               </button>
               <button
                 type="button"
                 className={mode === "remote" ? "active" : ""}
                 onClick={() => setMode("remote")}
               >
-                Remote
+                Remote (DMA)
               </button>
             </div>
 
