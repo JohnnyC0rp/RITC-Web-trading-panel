@@ -128,6 +128,8 @@ function App() {
   const [orders, setOrders] = useState([]);
   const [traderInfo, setTraderInfo] = useState(null);
   const [pnlSeries, setPnlSeries] = useState([]);
+  const [realizedSeries, setRealizedSeries] = useState([]);
+  const [unrealizedSeries, setUnrealizedSeries] = useState([]);
   const [fills, setFills] = useState([]);
   const [tasTrades, setTasTrades] = useState([]);
   const [demoStrategy, setDemoStrategy] = useState({
@@ -371,6 +373,8 @@ function App() {
     setOrders([]);
     setTraderInfo(null);
     setPnlSeries([]);
+    setRealizedSeries([]);
+    setUnrealizedSeries([]);
     setFills([]);
     setTasTrades([]);
     pnlBaseRef.current = null;
@@ -508,6 +512,75 @@ function App() {
   }, [selectedTicker]);
 
   useEffect(() => {
+    if (connectionStatus !== "Connected") return;
+    if (!fills.length) return;
+    const priceMap = new Map();
+    securities.forEach((sec) => {
+      const last = Number(sec.last);
+      const bid = Number(sec.bid);
+      const ask = Number(sec.ask);
+      const mid =
+        Number.isFinite(bid) && Number.isFinite(ask) ? (bid + ask) / 2 : Number.NaN;
+      const price = Number.isFinite(last) ? last : Number.isFinite(mid) ? mid : bid || ask;
+      if (Number.isFinite(price)) {
+        priceMap.set(sec.ticker, price);
+      }
+    });
+    const positions = new Map();
+    let realized = 0;
+    const sorted = [...fills].sort((a, b) => {
+      const tickA = Number(a.tick ?? 0);
+      const tickB = Number(b.tick ?? 0);
+      if (tickA !== tickB) return tickA - tickB;
+      return Number(a.order_id ?? 0) - Number(b.order_id ?? 0);
+    });
+    sorted.forEach((fill) => {
+      const price = Number(fill.vwap ?? fill.price);
+      const qty = Number(fill.quantity_filled ?? fill.quantity ?? fill.qty ?? 0);
+      if (!Number.isFinite(price) || !Number.isFinite(qty) || qty === 0) return;
+      const signed = fill.action === "BUY" ? qty : -qty;
+      const ticker = fill.ticker;
+      const current = positions.get(ticker) || { qty: 0, avg: 0 };
+      const sameSide = current.qty === 0 || Math.sign(current.qty) === Math.sign(signed);
+      if (sameSide) {
+        const newQty = current.qty + signed;
+        const totalCost =
+          Math.abs(current.qty) * current.avg + Math.abs(signed) * price;
+        const avg = newQty === 0 ? 0 : totalCost / Math.abs(newQty);
+        positions.set(ticker, { qty: newQty, avg });
+        return;
+      }
+      const closing = Math.min(Math.abs(current.qty), Math.abs(signed));
+      if (current.qty > 0) {
+        realized += (price - current.avg) * closing;
+      } else {
+        realized += (current.avg - price) * closing;
+      }
+      const remaining = Math.abs(signed) - closing;
+      const newQty = current.qty + signed;
+      if (remaining > 0) {
+        positions.set(ticker, { qty: newQty, avg: price });
+      } else {
+        positions.set(ticker, { qty: newQty, avg: newQty === 0 ? 0 : current.avg });
+      }
+    });
+    let unrealized = 0;
+    positions.forEach((pos, ticker) => {
+      if (!pos.qty) return;
+      const price = priceMap.get(ticker);
+      if (!Number.isFinite(price)) return;
+      if (pos.qty > 0) {
+        unrealized += (price - pos.avg) * pos.qty;
+      } else {
+        unrealized += (pos.avg - price) * Math.abs(pos.qty);
+      }
+    });
+    const stamp = Date.now();
+    setRealizedSeries((prev) => [...prev, { ts: stamp, value: realized }].slice(-600));
+    setUnrealizedSeries((prev) => [...prev, { ts: stamp, value: unrealized }].slice(-600));
+  }, [connectionStatus, fills, securities]);
+
+  useEffect(() => {
     if (!config) return undefined;
     let stop = false;
 
@@ -620,6 +693,8 @@ function App() {
       setHistory([]);
       setChartView({});
       setPnlSeries([]);
+      setRealizedSeries([]);
+      setUnrealizedSeries([]);
       pnlBaseRef.current = null;
       setFills([]);
       setTasTrades([]);
@@ -1359,14 +1434,48 @@ function App() {
   const pnlLayout = {
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "#F6F2EA",
-    margin: { l: 40, r: 20, t: 20, b: 30 },
-    height: 220,
+    margin: { l: 40, r: 16, t: 10, b: 26 },
+    height: 160,
     xaxis: { showgrid: false, tickfont: { size: 9 } },
     yaxis: { tickfont: { size: 10 }, zeroline: true },
   };
 
   const latestPnl = pnlSeries.length ? pnlSeries[pnlSeries.length - 1]?.pnl : null;
   const latestNlv = traderInfo?.nlv ?? (pnlSeries.length ? pnlSeries[pnlSeries.length - 1]?.nlv : null);
+  const latestRealized = realizedSeries.length
+    ? realizedSeries[realizedSeries.length - 1]?.value
+    : null;
+  const latestUnrealized = unrealizedSeries.length
+    ? unrealizedSeries[unrealizedSeries.length - 1]?.value
+    : null;
+
+  const realizedData = useMemo(() => {
+    if (!realizedSeries.length) return [];
+    return [
+      {
+        type: "scatter",
+        mode: "lines",
+        name: "Realized",
+        x: realizedSeries.map((entry) => new Date(entry.ts)),
+        y: realizedSeries.map((entry) => entry.value),
+        line: { color: "#22c55e", width: 2 },
+      },
+    ];
+  }, [realizedSeries]);
+
+  const unrealizedData = useMemo(() => {
+    if (!unrealizedSeries.length) return [];
+    return [
+      {
+        type: "scatter",
+        mode: "lines",
+        name: "Unrealized",
+        x: unrealizedSeries.map((entry) => new Date(entry.ts)),
+        y: unrealizedSeries.map((entry) => entry.value),
+        line: { color: "#f97316", width: 2 },
+      },
+    ];
+  }, [unrealizedSeries]);
 
   const canConnect = mode === "local" ? localConfig.apiKey : remoteConfig.authHeader;
   const isCaseStopped = connectionStatus === "Connected" && caseInfo?.status === "STOPPED";
@@ -1802,12 +1911,37 @@ function App() {
                 <span>PnL</span>
                 <strong>{latestPnl != null ? formatNumber(latestPnl, 2) : "—"}</strong>
               </div>
+              <div className="metric">
+                <span>Realized</span>
+                <strong>{latestRealized != null ? formatNumber(latestRealized, 2) : "—"}</strong>
+              </div>
+              <div className="metric">
+                <span>Unrealized</span>
+                <strong>{latestUnrealized != null ? formatNumber(latestUnrealized, 2) : "—"}</strong>
+              </div>
             </div>
-            {pnlSeries.length === 0 ? (
-              <div className="muted">No PnL history yet.</div>
-            ) : (
-              <Plot data={pnlData} layout={pnlLayout} config={{ displayModeBar: false }} style={{ width: "100%" }} />
-            )}
+            <div className="pnl-charts">
+              {unrealizedSeries.length === 0 ? (
+                <div className="muted">No unrealized PnL yet.</div>
+              ) : (
+                <Plot
+                  data={unrealizedData}
+                  layout={{ ...pnlLayout, title: { text: "Unrealized", font: { size: 11 } } }}
+                  config={{ displayModeBar: false }}
+                  style={{ width: "100%" }}
+                />
+              )}
+              {realizedSeries.length === 0 ? (
+                <div className="muted">No realized PnL yet.</div>
+              ) : (
+                <Plot
+                  data={realizedData}
+                  layout={{ ...pnlLayout, title: { text: "Realized", font: { size: 11 } } }}
+                  config={{ displayModeBar: false }}
+                  style={{ width: "100%" }}
+                />
+              )}
+            </div>
           </section>
 
           <section className="card split">
