@@ -58,13 +58,10 @@ npm install
 npm run dev
 ```
 
-## GitHub Pages (front-end only)
-This repo includes a GitHub Actions workflow that deploys the static UI to GitHub Pages.
-
-Important:
-- GitHub Pages can host the **UI only**.
-- The **proxy server cannot run on GitHub Pages**, so you must host the proxy separately (or run it locally).
-- For remote DMA access, you still need the proxy to bypass CORS.
+## Cloudflare Proxy (deployed)
+The remote DMA flow now supports a Cloudflare Worker proxy for CORS.
+- Set the Worker URL in the UI under **Remote → Use proxy → Cloudflare**.
+- Local proxy (`proxy.mjs` / `proxy.py`) is still available for dev and local-only flows.
 
 ## Notes
 - Local connection requires the Windows RIT User App running.

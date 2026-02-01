@@ -12,6 +12,7 @@ const DEFAULT_REMOTE = {
   baseUrl: "http://flserver.rotman.utoronto.ca:10001",
   authHeader: "",
 };
+const DEFAULT_CLOUD_PROXY = "https://your-worker.your-subdomain.workers.dev";
 
 const POLL_CASE_MS = 333;
 const POLL_BOOK_MS = 333;
@@ -185,6 +186,8 @@ function App() {
   const hadStaleRef = useRef(false);
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
+  const [proxyTargetRemote, setProxyTargetRemote] = useState("cloudflare");
+  const [cloudProxyUrl, setCloudProxyUrl] = useState(DEFAULT_CLOUD_PROXY);
   const [chartView, setChartView] = useState({});
   const [showChartSettings, setShowChartSettings] = useState(false);
   const [showRangeSlider, setShowRangeSlider] = useState(false);
@@ -332,6 +335,8 @@ function App() {
     setProxyHint("");
     setConnectionStatus("Connecting...");
     const useProxy = mode === "local" ? useProxyLocal : useProxyRemote;
+    const remoteProxyBase =
+      proxyTargetRemote === "local" ? "http://localhost:3001" : cloudProxyUrl;
     const cfg =
       mode === "local"
         ? {
@@ -342,7 +347,7 @@ function App() {
             },
           }
         : {
-            baseUrl: useProxy ? "http://localhost:3001" : remoteConfig.baseUrl,
+            baseUrl: useProxy ? remoteProxyBase : remoteConfig.baseUrl,
             headers: {
               Authorization: remoteConfig.authHeader,
               ...(useProxy ? { "X-Proxy-Target": "remote" } : {}),
@@ -1720,10 +1725,34 @@ function App() {
                     checked={useProxyRemote}
                     onChange={(event) => setUseProxyRemote(event.target.checked)}
                   />
-                  Use proxy (http://localhost:3001)
+                  Use proxy
                 </label>
+                {useProxyRemote && (
+                  <>
+                    <label>
+                      Proxy target
+                      <select
+                        value={proxyTargetRemote}
+                        onChange={(event) => setProxyTargetRemote(event.target.value)}
+                      >
+                        <option value="cloudflare">Cloudflare Worker (default)</option>
+                        <option value="local">Local (http://localhost:3001)</option>
+                      </select>
+                    </label>
+                    {proxyTargetRemote === "cloudflare" && (
+                      <label>
+                        Cloudflare proxy URL
+                        <input
+                          value={cloudProxyUrl}
+                          onChange={(event) => setCloudProxyUrl(event.target.value)}
+                          placeholder="https://your-worker.your-subdomain.workers.dev"
+                        />
+                      </label>
+                    )}
+                  </>
+                )}
                 <div className="muted">
-                  Proxy avoids CORS blocks. Start proxy.py before connecting.
+                  Proxy avoids CORS blocks. Local uses proxy.mjs/proxy.py. Cloudflare uses your Worker URL.
                 </div>
               </div>
             )}
