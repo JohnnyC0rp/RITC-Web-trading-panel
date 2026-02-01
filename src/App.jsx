@@ -1981,31 +1981,6 @@ function App() {
             </div>
           </section>
 
-          <section className="card" style={{ marginBottom: "20px" }}>
-            <div className="card-title">My Executions</div>
-            <div className="orders-list">
-              {myExecs.length === 0 ? (
-                <div className="muted">No executions yet.</div>
-              ) : (
-                myExecs.map((fill) => {
-                  const qty = Number(fill.quantity_filled ?? fill.quantity ?? fill.qty ?? 0);
-                  const price = fill.vwap ?? fill.price;
-                  return (
-                    <div key={fill.order_id ?? `${fill.ticker}-${fill.tick}-${price}`} className="order-row">
-                      <div>
-                        <strong>{fill.ticker}</strong>
-                        <div className="muted">
-                          {fill.action} · Qty {formatQty(qty)} · Tick {fill.tick}
-                        </div>
-                      </div>
-                      <div className="muted">{formatNumber(price)}</div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </section>
-
           <section className="card split">
             <div className="split-panel">
               <div className="card-title">Order Book</div>
@@ -2152,6 +2127,31 @@ function App() {
                     }
                   }}
                 />
+              )}
+            </div>
+          </section>
+
+          <section className="card" style={{ marginTop: "20px" }}>
+            <div className="card-title">My Executions</div>
+            <div className="orders-list">
+              {myExecs.length === 0 ? (
+                <div className="muted">No executions yet.</div>
+              ) : (
+                myExecs.map((fill) => {
+                  const qty = Number(fill.quantity_filled ?? fill.quantity ?? fill.qty ?? 0);
+                  const price = fill.vwap ?? fill.price;
+                  return (
+                    <div key={fill.order_id ?? `${fill.ticker}-${fill.tick}-${price}`} className="order-row">
+                      <div>
+                        <strong>{fill.ticker}</strong>
+                        <div className="muted">
+                          {fill.action} · Qty {formatQty(qty)} · Tick {fill.tick}
+                        </div>
+                      </div>
+                      <div className="muted">{formatNumber(price)}</div>
+                    </div>
+                  );
+                })
               )}
             </div>
           </section>
