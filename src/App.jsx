@@ -9,7 +9,7 @@ const DEFAULT_LOCAL = {
 };
 
 const DEFAULT_REMOTE = {
-  baseUrl: "http://flserver.rotman.utoronto.ca:10001",
+  baseUrl: "http://flserver.rotman.utoronto.ca:16530",
   authHeader: "",
 };
 
@@ -1711,6 +1711,10 @@ function App() {
                     }
                   />
                 </label>
+                <div className="muted">
+                  ⚠️ Double-check the DMA port for your case (example: 16530). If Use proxy is
+                  enabled, the proxy may still route to the port in <code>creds/rit_rest.json</code>.
+                </div>
                 <label>
                   Authorization
                   <input
