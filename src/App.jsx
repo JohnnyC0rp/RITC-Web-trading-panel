@@ -13,6 +13,7 @@ const DEFAULT_REMOTE = {
   authHeader: "",
 };
 
+const POLL_CASE_MS = 1500;
 const POLL_BOOK_MS = 800;
 const POLL_SECURITIES_MS = 2500;
 const POLL_ORDERS_MS = 2500;
@@ -312,6 +313,30 @@ function App() {
     setLastBookUpdateAt(0);
     log("Disconnected");
   };
+
+  useEffect(() => {
+    if (!config) return undefined;
+    let stop = false;
+
+    const pull = async () => {
+      try {
+        const data = await apiGet("/case");
+        if (!stop) setCaseInfo(data || null);
+      } catch (error) {
+        if (!stop && error?.status !== 429) {
+          log(`Case error: ${error.message}`);
+          maybeSuggestProxy(error);
+        }
+      }
+    };
+
+    pull();
+    const id = setInterval(pull, POLL_CASE_MS);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, [apiGet, config, log, maybeSuggestProxy]);
 
   useEffect(() => {
     if (!config) return undefined;
