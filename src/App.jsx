@@ -900,9 +900,17 @@ function App() {
   };
 
   const canConnect = mode === "local" ? localConfig.apiKey : remoteConfig.authHeader;
+  const isCaseStopped = connectionStatus === "Connected" && caseInfo?.status === "STOPPED";
+  // Status copy tweak: show "stopped" without sounding alarmist (yellow is enough drama). 😅
   const statusLabel = connectionStatus;
-  const statusClass = connectionStatus === "Connected" ? "online" : "offline";
-  const statusDetail = caseInfo?.name || "No case selected";
+  const statusClass = isCaseStopped
+    ? "warning"
+    : connectionStatus === "Connected"
+      ? "online"
+      : "offline";
+  const statusDetail = isCaseStopped
+    ? "Connected but case currently stopped"
+    : caseInfo?.name || "No case selected";
   const newsText = newsItems.length
     ? newsItems.map((item) => item.text).join(" • ")
     : Array.from({ length: 3 }, () => "News feed idle").join(" • ");
