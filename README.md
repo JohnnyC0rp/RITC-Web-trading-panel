@@ -58,9 +58,16 @@ npm install
 npm run dev
 ```
 
-## Proxy (local)
-The remote DMA flow uses the local proxy for CORS.
-- Start `proxy.mjs` or `proxy.py` locally and enable **Use proxy** in the UI.
+## Proxy (local or remote)
+The remote DMA flow needs a proxy for CORS.
+- Local: start `proxy.mjs` or `proxy.py`, then enable **Use proxy** in the UI.
+- Remote: use a hosted proxy (e.g., Cloudflare Worker) and set **Remote proxy URL** in the UI.
+
+## CI/CD (GitHub Pages via /docs)
+This repo uses a commit-on-build workflow:
+- On every push to `main`, GitHub Actions runs `npm run build`
+- The build output is committed to `/docs`
+- GitHub Pages should be configured to serve from the `/docs` folder on `main`
 
 ## Notes
 - Local connection requires the Windows RIT User App running.
