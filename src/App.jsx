@@ -18,6 +18,8 @@ const POLL_BOOK_MS = 333;
 const POLL_SECURITIES_MS = 2500;
 const POLL_ORDERS_MS = 2500;
 const POLL_TRADER_MS = 1000;
+const POLL_TAS_MS = 1000;
+const POLL_FILLS_MS = 1000;
 
 const normalizeBaseUrl = (url) =>
   url.replace(/\/+$/, "").replace(/\/v1$/i, "").replace(/\/v1\/$/i, "");
@@ -73,6 +75,34 @@ const toStepTick = (price, step) => Math.round(price / step);
 const fromStepTick = (tick, step, decimals) =>
   Number((tick * step).toFixed(decimals));
 
+const aggregateCandles = (rows, bucketSize = 5) => {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+  const sorted = [...rows].sort((a, b) => Number(a.tick ?? 0) - Number(b.tick ?? 0));
+  const buckets = new Map();
+  sorted.forEach((row) => {
+    const tick = Number(row.tick ?? 0);
+    if (!Number.isFinite(tick) || tick <= 0) return;
+    const bucket = Math.floor((tick - 1) / bucketSize);
+    const startTick = bucket * bucketSize + 1;
+    const endTick = startTick + bucketSize - 1;
+    const existing = buckets.get(bucket);
+    if (!existing) {
+      buckets.set(bucket, {
+        tick: endTick,
+        open: Number(row.open ?? row.close ?? row.price ?? 0),
+        high: Number(row.high ?? row.close ?? row.price ?? 0),
+        low: Number(row.low ?? row.close ?? row.price ?? 0),
+        close: Number(row.close ?? row.price ?? 0),
+      });
+      return;
+    }
+    existing.high = Math.max(existing.high, Number(row.high ?? row.close ?? row.price ?? existing.high));
+    existing.low = Math.min(existing.low, Number(row.low ?? row.close ?? row.price ?? existing.low));
+    existing.close = Number(row.close ?? row.price ?? existing.close);
+  });
+  return Array.from(buckets.values()).sort((a, b) => a.tick - b.tick);
+};
+
 const getVolumeTone = (ratio) => {
   if (ratio >= 0.6) return "deep";
   if (ratio >= 0.3) return "mid";
@@ -98,6 +128,8 @@ function App() {
   const [orders, setOrders] = useState([]);
   const [traderInfo, setTraderInfo] = useState(null);
   const [pnlSeries, setPnlSeries] = useState([]);
+  const [fills, setFills] = useState([]);
+  const [tasTrades, setTasTrades] = useState([]);
   const [demoStrategy, setDemoStrategy] = useState({
     enabled: false,
     intervalMs: 3000,
@@ -121,6 +153,7 @@ function App() {
   const lastCaseRef = useRef({ tick: null, period: null });
   const tickAlertRef = useRef({ period: null, fired: new Set() });
   const pnlBaseRef = useRef(null);
+  const tasAfterRef = useRef(null);
   const marketSnapRef = useRef({
     last: null,
     mid: null,
@@ -338,7 +371,10 @@ function App() {
     setOrders([]);
     setTraderInfo(null);
     setPnlSeries([]);
+    setFills([]);
+    setTasTrades([]);
     pnlBaseRef.current = null;
+    tasAfterRef.current = null;
     setLastConnectAt(0);
     setLastBookUpdateAt(0);
     lastCaseRef.current = { tick: null, period: null };
@@ -368,6 +404,108 @@ function App() {
       clearInterval(id);
     };
   }, [apiGet, config, log, maybeSuggestProxy]);
+
+  useEffect(() => {
+    if (!config || !selectedTicker) return undefined;
+    let stop = false;
+
+    const pull = async () => {
+      try {
+        const params = { ticker: selectedTicker, limit: 200 };
+        if (tasAfterRef.current != null) {
+          params.after = tasAfterRef.current;
+        }
+        const data = await apiGet("/securities/tas", params);
+        if (stop) return;
+        const list = Array.isArray(data) ? data : [];
+        if (!list.length) return;
+        const normalized = list
+          .map((item) => ({
+            id: item.id ?? item.trade_id ?? item.tas_id,
+            tick: item.tick ?? null,
+            price: item.price ?? null,
+            quantity: item.quantity ?? item.qty ?? item.size ?? null,
+          }))
+          .filter(
+            (item) =>
+              item.id != null &&
+              Number.isFinite(Number(item.tick)) &&
+              Number.isFinite(Number(item.price))
+          );
+        if (!normalized.length) return;
+        setTasTrades((prev) => {
+          const map = new Map(prev.map((entry) => [entry.id, entry]));
+          normalized.forEach((entry) => map.set(entry.id, entry));
+          const merged = Array.from(map.values());
+          merged.sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+          return merged.slice(-400);
+        });
+        const maxId = Math.max(...normalized.map((entry) => Number(entry.id) || -1));
+        if (Number.isFinite(maxId) && maxId >= 0) {
+          tasAfterRef.current = maxId;
+        }
+      } catch (error) {
+        if (!stop && error?.status !== 429) {
+          log(`TAS error: ${error.message}`);
+          maybeSuggestProxy(error);
+        }
+      }
+    };
+
+    pull();
+    const id = setInterval(pull, POLL_TAS_MS);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, [apiGet, config, log, maybeSuggestProxy, selectedTicker]);
+
+  useEffect(() => {
+    if (!config) return undefined;
+    let stop = false;
+
+    const pull = async () => {
+      try {
+        const data = await apiGet("/orders", { status: "TRANSACTED" });
+        if (stop) return;
+        const list = Array.isArray(data) ? data : [];
+        if (!list.length) return;
+        setFills((prev) => {
+          const map = new Map(prev.map((entry) => [entry.order_id ?? entry.id, entry]));
+          list.forEach((entry) => {
+            const id = entry.order_id ?? entry.id;
+            if (id == null) return;
+            map.set(id, entry);
+          });
+          const merged = Array.from(map.values());
+          merged.sort((a, b) => {
+            const tickA = Number(a.tick ?? 0);
+            const tickB = Number(b.tick ?? 0);
+            if (tickA !== tickB) return tickA - tickB;
+            return Number(a.order_id ?? 0) - Number(b.order_id ?? 0);
+          });
+          return merged.slice(-600);
+        });
+      } catch (error) {
+        if (!stop && error?.status !== 429) {
+          log(`Fills error: ${error.message}`);
+          maybeSuggestProxy(error);
+        }
+      }
+    };
+
+    pull();
+    const id = setInterval(pull, POLL_FILLS_MS);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, [apiGet, config, log, maybeSuggestProxy]);
+
+  useEffect(() => {
+    tasAfterRef.current = null;
+    setTasTrades([]);
+  }, [selectedTicker]);
 
   useEffect(() => {
     if (!config) return undefined;
@@ -483,6 +621,9 @@ function App() {
       setChartView({});
       setPnlSeries([]);
       pnlBaseRef.current = null;
+      setFills([]);
+      setTasTrades([]);
+      tasAfterRef.current = null;
       // Fresh period, fresh candles — like a reset button, but friendlier. ✨
       setHistoryEpoch((value) => value + 1);
     }
@@ -745,13 +886,13 @@ function App() {
   }, [apiGet, config, log, selectedTicker]);
 
   useEffect(() => {
-    if (!config || !selectedTicker) return;
+    if (!config || !selectedTicker || caseInfo?.tick == null) return;
     let stop = false;
     const pull = async () => {
       try {
         const historyData = await apiGet("/securities/history", {
           ticker: selectedTicker,
-          limit: 80,
+          limit: 120,
         });
         if (!stop) setHistory(historyData || []);
       } catch (error) {
@@ -765,7 +906,7 @@ function App() {
     return () => {
       stop = true;
     };
-  }, [apiGet, config, historyEpoch, log, selectedTicker]);
+  }, [apiGet, caseInfo?.tick, config, historyEpoch, log, selectedTicker]);
 
   const handleOrderSubmit = async (event) => {
     event.preventDefault();
@@ -1014,22 +1155,24 @@ function App() {
     return () => clearInterval(interval);
   }, [centerOrderBook, lastBookInteraction, priceRows.length]);
 
+  const candles = useMemo(() => aggregateCandles(history, 5), [history]);
+
   const candleData = useMemo(() => {
-    if (!history?.length) return null;
-    const ticks = history.map((c) => c.tick);
+    if (!candles.length) return null;
+    const ticks = candles.map((c) => c.tick);
     return {
       x: ticks,
-      open: history.map((c) => c.open),
-      high: history.map((c) => c.high),
-      low: history.map((c) => c.low),
-      close: history.map((c) => c.close),
+      open: candles.map((c) => c.open),
+      high: candles.map((c) => c.high),
+      low: candles.map((c) => c.low),
+      close: candles.map((c) => c.close),
     };
-  }, [history]);
+  }, [candles]);
 
   const sma = useMemo(() => {
-    if (!history?.length) return { ma20: [], ma50: [] };
-    const closes = history.map((c) => c.close);
-    const ticks = history.map((c) => c.tick);
+    if (!candles.length) return { ma20: [], ma50: [] };
+    const closes = candles.map((c) => c.close);
+    const ticks = candles.map((c) => c.tick);
     const calc = (window) => {
       const values = [];
       for (let i = 0; i < closes.length; i += 1) {
@@ -1044,7 +1187,54 @@ function App() {
       return { x: ticks, y: values };
     };
     return { ma20: calc(20), ma50: calc(50) };
-  }, [history]);
+  }, [candles]);
+
+  const dealTrace = useMemo(() => {
+    if (!tasTrades.length) return null;
+    return {
+      type: "scatter",
+      mode: "markers",
+      name: "Deals",
+      x: tasTrades.map((trade) => trade.tick),
+      y: tasTrades.map((trade) => trade.price),
+      marker: { size: 6, color: "rgba(148, 163, 184, 0.55)" },
+    };
+  }, [tasTrades]);
+
+  const fillMarkers = useMemo(() => {
+    if (!fills.length || !selectedTicker) {
+      return { opens: [], closes: [] };
+    }
+    const filtered = fills
+      .filter(
+        (fill) =>
+          fill.ticker === selectedTicker &&
+          Number.isFinite(Number(fill.tick)) &&
+          Number.isFinite(Number(fill.price))
+      )
+      .sort((a, b) => {
+        const tickA = Number(a.tick ?? 0);
+        const tickB = Number(b.tick ?? 0);
+        if (tickA !== tickB) return tickA - tickB;
+        return Number(a.order_id ?? 0) - Number(b.order_id ?? 0);
+      });
+    const opens = [];
+    const closes = [];
+    let position = 0;
+    filtered.forEach((fill) => {
+      const qty = Number(fill.quantity ?? fill.qty ?? 0);
+      const signed = fill.action === "BUY" ? qty : -qty;
+      const before = position;
+      position += signed;
+      if (before === 0 && position !== 0) {
+        opens.push(fill);
+      }
+      if (position === 0 && before !== 0) {
+        closes.push(fill);
+      }
+    });
+    return { opens, closes };
+  }, [fills, selectedTicker]);
 
   const chartData = candleData
     ? [
@@ -1058,6 +1248,41 @@ function App() {
           increasing: { line: { color: "#2E8B57" } },
           decreasing: { line: { color: "#C0392B" } },
         },
+        ...(dealTrace ? [dealTrace] : []),
+        ...(fillMarkers.opens.length
+          ? [
+              {
+                type: "scatter",
+                mode: "markers",
+                name: "Position Open",
+                x: fillMarkers.opens.map((fill) => fill.tick),
+                y: fillMarkers.opens.map((fill) => fill.price),
+                marker: {
+                  size: 10,
+                  symbol: "circle-open",
+                  color: "#22c55e",
+                  line: { width: 2, color: "#22c55e" },
+                },
+              },
+            ]
+          : []),
+        ...(fillMarkers.closes.length
+          ? [
+              {
+                type: "scatter",
+                mode: "markers",
+                name: "Position Close",
+                x: fillMarkers.closes.map((fill) => fill.tick),
+                y: fillMarkers.closes.map((fill) => fill.price),
+                marker: {
+                  size: 10,
+                  symbol: "x",
+                  color: "#ef4444",
+                  line: { width: 2, color: "#ef4444" },
+                },
+              },
+            ]
+          : []),
         ...(showMa20
           ? [
               {
@@ -1693,7 +1918,7 @@ function App() {
                   </label>
                 </div>
               )}
-              {history.length === 0 ? (
+              {candles.length === 0 ? (
                 <div className="muted">No candle history yet.</div>
               ) : (
                 <Plot
