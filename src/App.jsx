@@ -1672,10 +1672,8 @@ function App() {
           <div className={`status-pill ${statusClass}`}>
             {statusLabel}
           </div>
-          <span className="status-detail">{statusDetail}</span>
-          {timeTicker && <span className="status-meta">{timeTicker}</span>}
           {routeSteps.length > 0 && (
-            <div className="status-route">
+            <div className="status-route status-route--inline">
               {routeSteps.map((step, index) => (
                 <span key={`${step}-${index}`} className="status-route__step">
                   {step}
@@ -1683,6 +1681,8 @@ function App() {
               ))}
             </div>
           )}
+          <span className="status-detail">{statusDetail}</span>
+          {timeTicker && <span className="status-meta">{timeTicker}</span>}
           {ticksLeft !== null && (
             <>
               <div className="tick-bar" aria-label={`Ticks left: ${ticksLeft}`}>
@@ -1769,6 +1769,7 @@ function App() {
                     onChange={(event) =>
                       setRemoteConfig((prev) => ({ ...prev, authHeader: event.target.value }))
                     }
+                    placeholder="Basic XXXXXXXXXX"
                   />
                 </label>
                 <label className="checkbox-row">

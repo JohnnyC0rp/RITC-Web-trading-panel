@@ -150,6 +150,10 @@
   justify-content: flex-end;
 }
 
+.status-route--inline {
+  justify-content: flex-end;
+}
+
 .status-route__step {
   padding: 2px 8px;
   border-radius: 999px;
