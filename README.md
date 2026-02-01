@@ -58,10 +58,9 @@ npm install
 npm run dev
 ```
 
-## Cloudflare Proxy (deployed)
-The remote DMA flow now supports a Cloudflare Worker proxy for CORS.
-- Set the Worker URL in the UI under **Remote → Use proxy → Cloudflare**.
-- Local proxy (`proxy.mjs` / `proxy.py`) is still available for dev and local-only flows.
+## Proxy (local)
+The remote DMA flow uses the local proxy for CORS.
+- Start `proxy.mjs` or `proxy.py` locally and enable **Use proxy** in the UI.
 
 ## Notes
 - Local connection requires the Windows RIT User App running.
