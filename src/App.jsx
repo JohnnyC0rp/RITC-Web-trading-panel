@@ -1210,7 +1210,7 @@ function App() {
         (fill) =>
           fill.ticker === selectedTicker &&
           Number.isFinite(Number(fill.tick)) &&
-          Number.isFinite(Number(fill.price))
+          Number.isFinite(Number(fill.vwap ?? fill.price))
       )
       .sort((a, b) => {
         const tickA = Number(a.tick ?? 0);
@@ -1222,7 +1222,7 @@ function App() {
     const closes = [];
     let position = 0;
     filtered.forEach((fill) => {
-      const qty = Number(fill.quantity ?? fill.qty ?? 0);
+      const qty = Number(fill.quantity_filled ?? fill.quantity ?? fill.qty ?? 0);
       const signed = fill.action === "BUY" ? qty : -qty;
       const before = position;
       position += signed;
@@ -1231,6 +1231,10 @@ function App() {
       }
       if (position === 0 && before !== 0) {
         closes.push(fill);
+      }
+      if ((before > 0 && position < 0) || (before < 0 && position > 0)) {
+        closes.push(fill);
+        opens.push(fill);
       }
     });
     return { opens, closes };
@@ -1256,7 +1260,7 @@ function App() {
                 mode: "markers",
                 name: "Position Open",
                 x: fillMarkers.opens.map((fill) => fill.tick),
-                y: fillMarkers.opens.map((fill) => fill.price),
+                y: fillMarkers.opens.map((fill) => fill.vwap ?? fill.price),
                 marker: {
                   size: 10,
                   symbol: "circle-open",
@@ -1273,7 +1277,7 @@ function App() {
                 mode: "markers",
                 name: "Position Close",
                 x: fillMarkers.closes.map((fill) => fill.tick),
-                y: fillMarkers.closes.map((fill) => fill.price),
+                y: fillMarkers.closes.map((fill) => fill.vwap ?? fill.price),
                 marker: {
                   size: 10,
                   symbol: "x",
