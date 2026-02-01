@@ -477,15 +477,12 @@ function App() {
     const currPeriod = caseInfo.period ?? null;
     const prev = lastCaseRef.current;
     const hasPrev = prev.tick !== null && prev.tick !== undefined;
-    const tickReset =
-      hasPrev &&
-      Number.isFinite(currTick) &&
-      (currTick < Number(prev.tick) ||
-        (currTick === 0 && prev.tick !== 0) ||
-        (prev.period !== null && currPeriod !== prev.period && currTick === 0));
+    const tickReset = hasPrev && Number.isFinite(currTick) && currTick === 1;
     if (tickReset) {
       setHistory([]);
       setChartView({});
+      setPnlSeries([]);
+      pnlBaseRef.current = null;
       // Fresh period, fresh candles — like a reset button, but friendlier. ✨
       setHistoryEpoch((value) => value + 1);
     }
