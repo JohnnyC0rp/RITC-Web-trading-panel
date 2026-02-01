@@ -9,3 +9,6 @@ scripts/.DS_Store
 # Credentials (keep template)
 creds/*
 !creds/rit_rest.example.jsonc
+
+# Scraper output
+parser/out/
