@@ -965,9 +965,11 @@ function App() {
     let stop = false;
     const pull = async () => {
       try {
+        const periodLimit = Number(caseInfo?.ticks_per_period) || 300;
+        const limit = Math.max(120, periodLimit);
         const historyData = await apiGet("/securities/history", {
           ticker: selectedTicker,
-          limit: 120,
+          limit,
         });
         if (!stop) setHistory(historyData || []);
       } catch (error) {
@@ -981,7 +983,7 @@ function App() {
     return () => {
       stop = true;
     };
-  }, [apiGet, caseInfo?.tick, config, historyEpoch, log, selectedTicker]);
+  }, [apiGet, caseInfo?.tick, caseInfo?.ticks_per_period, config, historyEpoch, log, selectedTicker]);
 
   const handleOrderSubmit = async (event) => {
     event.preventDefault();
