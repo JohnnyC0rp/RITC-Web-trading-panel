@@ -33,7 +33,11 @@ AUTH_HEADER = _build_auth_header(CREDS)
 class ProxyHandler(BaseHTTPRequestHandler):
     def _forward(self, method):
         target_mode = (self.headers.get("X-Proxy-Target") or "remote").strip().lower()
-        target = TARGET_LOCAL if target_mode == "local" else TARGET_REMOTE
+        override_base = (self.headers.get("X-Proxy-Base") or "").strip()
+        if override_base and override_base.startswith(("http://", "https://")):
+            target = override_base
+        else:
+            target = TARGET_LOCAL if target_mode == "local" else TARGET_REMOTE
         url = target + self.path
         body = None
         if method in {"POST", "PUT", "PATCH"}:
@@ -65,7 +69,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header(
                 "Access-Control-Allow-Headers",
-                "Authorization, Content-Type, X-API-Key, X-Proxy-Target",
+                "Authorization, Content-Type, X-API-Key, X-Proxy-Target, X-Proxy-Base",
             )
             self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
             self.end_headers()
@@ -76,7 +80,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header(
             "Access-Control-Allow-Headers",
-            "Authorization, Content-Type, X-API-Key, X-Proxy-Target",
+            "Authorization, Content-Type, X-API-Key, X-Proxy-Target, X-Proxy-Base",
         )
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.end_headers()

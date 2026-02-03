@@ -33,7 +33,7 @@ const allowCors = (headers) => ({
   ...headers,
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "Authorization, Content-Type, X-API-Key, X-Proxy-Target",
+    "Authorization, Content-Type, X-API-Key, X-Proxy-Target, X-Proxy-Base",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
 });
 
@@ -45,7 +45,10 @@ const proxy = (req, res) => {
   }
 
   const targetMode = (req.headers["x-proxy-target"] || "remote").toString().toLowerCase();
-  const targetBase = targetMode === "local" ? TARGET_LOCAL : TARGET_REMOTE;
+  const overrideBase = (req.headers["x-proxy-base"] || "").toString().trim();
+  const safeOverride =
+    overrideBase && /^https?:\/\//i.test(overrideBase) ? overrideBase : "";
+  const targetBase = safeOverride || (targetMode === "local" ? TARGET_LOCAL : TARGET_REMOTE);
   const targetUrl = new URL(req.url, targetBase);
   const isHttps = targetUrl.protocol === "https:";
   const client = isHttps ? httpsRequest : httpRequest;

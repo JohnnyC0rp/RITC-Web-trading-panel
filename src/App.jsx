@@ -17,7 +17,18 @@ const DEFAULT_REMOTE = {
   username: "",
   password: "",
   authMode: "basic",
+  caseId: "volatility-trading",
+  algoPort: 16565,
 };
+
+const DMA_CASES = [
+  { id: "liquidity-risk", label: "Liquidity Risk", port: 16510 },
+  { id: "volatility-trading", label: "Volatility Trading", port: 16530 },
+  { id: "merger-arbitrage", label: "Merger Arbitrage", port: 16550 },
+  { id: "algo-mm", label: "Algo MM", ports: [16565, 16575, 16585] },
+];
+
+const REMOTE_CREDS_KEY = "privodJohnnyRemoteCreds";
 
 const POLL_CASE_MS = 333;
 const POLL_BOOK_MS = 333;
@@ -30,6 +41,40 @@ const CANDLE_BUCKET = 5;
 
 const normalizeBaseUrl = (url) =>
   url.replace(/\/+$/, "").replace(/\/v1$/i, "").replace(/\/v1\/$/i, "");
+
+const updateUrlPort = (rawUrl, port) => {
+  try {
+    const parsed = new URL(rawUrl);
+    parsed.port = String(port);
+    return parsed.toString();
+  } catch {
+    return rawUrl;
+  }
+};
+
+const resolveCasePort = (caseId, algoPort) => {
+  const entry = DMA_CASES.find((item) => item.id === caseId);
+  if (!entry) return null;
+  if (entry.ports) return algoPort ?? entry.ports[0];
+  return entry.port ?? null;
+};
+
+const loadRemoteCreds = () => {
+  try {
+    const raw = localStorage.getItem(REMOTE_CREDS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveRemoteCreds = (payload) => {
+  try {
+    localStorage.setItem(REMOTE_CREDS_KEY, JSON.stringify(payload));
+  } catch {
+    // If storage is blocked, we keep calm and carry on. 🙂
+  }
+};
 
 const buildUrl = (baseUrl, path, params = {}) => {
   const normalized = normalizeBaseUrl(baseUrl);
@@ -223,6 +268,17 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const stored = loadRemoteCreds();
+    if (!stored) return;
+    setRemoteConfig((prev) => ({
+      ...prev,
+      ...(stored.username ? { username: stored.username } : {}),
+      ...(stored.password ? { password: stored.password } : {}),
+      ...(stored.authMode ? { authMode: stored.authMode } : {}),
+    }));
+  }, []);
+
+  useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
@@ -360,6 +416,10 @@ function App() {
       remoteConfig.authMode === "header"
         ? remoteConfig.authHeader
         : encodeBasic(remoteConfig.username, remoteConfig.password);
+    const selectedPort = resolveCasePort(remoteConfig.caseId, remoteConfig.algoPort);
+    const resolvedRemoteBase = selectedPort
+      ? updateUrlPort(remoteConfig.baseUrl, selectedPort)
+      : remoteConfig.baseUrl;
     const cfg =
       mode === "local"
         ? {
@@ -370,13 +430,25 @@ function App() {
             },
           }
         : {
-            baseUrl: useProxy ? remoteProxyBase : remoteConfig.baseUrl,
+            baseUrl: useProxy ? remoteProxyBase : resolvedRemoteBase,
             headers: {
               Authorization: remoteAuthHeader,
-              ...(useProxy ? { "X-Proxy-Target": "remote" } : {}),
+              ...(useProxy
+                ? {
+                    "X-Proxy-Target": "remote",
+                    "X-Proxy-Base": resolvedRemoteBase,
+                  }
+                : {}),
             },
           };
     try {
+      if (mode === "remote" && remoteConfig.authMode === "basic") {
+        saveRemoteCreds({
+          username: remoteConfig.username,
+          password: remoteConfig.password,
+          authMode: remoteConfig.authMode,
+        });
+      }
       const caseData = await requestWithConfig(cfg, "/case");
       setActiveConfig(cfg);
       setCaseInfo(caseData);
@@ -397,8 +469,11 @@ function App() {
       log(`Connection error: ${error?.message || "Unknown"}`);
     }
   }, [
+    cloudProxyUrl,
     localConfig,
     mode,
+    playSound,
+    proxyTargetRemote,
     remoteConfig,
     requestWithConfig,
     log,
@@ -1775,9 +1850,56 @@ function App() {
                   />
                 </label>
                 <div className="muted">
-                  ⚠️ Double-check the DMA port for your case (example: 16530). If Use proxy is
-                  enabled, the proxy may still route to the port in <code>creds/rit_rest.json</code>.
+                  DMA port is set from the case selector below. Proxy requests now honor the
+                  selected port.
                 </div>
+                <label>
+                  Case
+                  <select
+                    value={remoteConfig.caseId}
+                    onChange={(event) => {
+                      const nextCase = event.target.value;
+                      const defaultPort = resolveCasePort(nextCase, remoteConfig.algoPort);
+                      setRemoteConfig((prev) => ({
+                        ...prev,
+                        caseId: nextCase,
+                        baseUrl: defaultPort ? updateUrlPort(prev.baseUrl, defaultPort) : prev.baseUrl,
+                        algoPort:
+                          nextCase === "algo-mm"
+                            ? prev.algoPort ?? DMA_CASES.find((item) => item.id === "algo-mm")?.ports?.[0]
+                            : prev.algoPort,
+                      }));
+                    }}
+                  >
+                    {DMA_CASES.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {remoteConfig.caseId === "algo-mm" && (
+                  <label>
+                    Algo MM port
+                    <select
+                      value={remoteConfig.algoPort}
+                      onChange={(event) => {
+                        const port = Number(event.target.value);
+                        setRemoteConfig((prev) => ({
+                          ...prev,
+                          algoPort: port,
+                          baseUrl: updateUrlPort(prev.baseUrl, port),
+                        }));
+                      }}
+                    >
+                      {DMA_CASES.find((item) => item.id === "algo-mm")?.ports?.map((port) => (
+                        <option key={port} value={port}>
+                          {port}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <label>
                   Auth mode
                   <select
