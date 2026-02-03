@@ -32,7 +32,7 @@ jobs:
         run: npm run build
 
       - name: Copy update payload into docs
-        run: cp public/last-update.txt docs/last-update.txt
+        run: cp public/versions.txt docs/versions.txt
 
       - name: Commit docs
         run: |
