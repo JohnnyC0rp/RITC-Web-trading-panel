@@ -19,6 +19,61 @@
   overflow: hidden;
 }
 
+.hero-actions {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 1;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.theme-toggle__label {
+  font-size: 0.8rem;
+}
+
+.theme-toggle__track {
+  position: relative;
+  width: 38px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.18);
+  transition: background 0.2s ease;
+}
+
+.theme-toggle__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 0.2s ease;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
+}
+
+.theme-toggle[aria-pressed="true"] .theme-toggle__track {
+  background: rgba(15, 23, 42, 0.85);
+}
+
+.theme-toggle[aria-pressed="true"] .theme-toggle__thumb {
+  transform: translateX(18px);
+}
+
 .hero::after {
   content: "";
   position: absolute;
@@ -473,6 +528,42 @@ button.full {
   border-radius: 12px;
 }
 
+.indicator-menu {
+  width: 100%;
+}
+
+.indicator-menu summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.indicator-list {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 14px;
+}
+
+.indicator-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.indicator-info {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: transparent;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
 .book-table {
   display: grid;
   gap: 8px;
@@ -794,6 +885,10 @@ button.full {
   max-width: 520px;
 }
 
+.modal-card.indicator-card {
+  max-width: 360px;
+}
+
 .update-message {
   margin: 12px 0 20px;
   padding: 12px;
@@ -822,6 +917,109 @@ button.full {
 .update-history-item {
   padding-top: 10px;
   border-top: 1px solid rgba(15, 23, 42, 0.1);
+}
+
+.app[data-theme="dark"] {
+  color: #e2e8f0;
+}
+
+.app[data-theme="dark"] .hero {
+  background: linear-gradient(120deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.9));
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.app[data-theme="dark"] .hero::after {
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.25), transparent 70%);
+}
+
+.app[data-theme="dark"] .hero-eyebrow,
+.app[data-theme="dark"] .hero-subtitle,
+.app[data-theme="dark"] .status-detail,
+.app[data-theme="dark"] .status-meta,
+.app[data-theme="dark"] .status-route,
+.app[data-theme="dark"] .tender-sub,
+.app[data-theme="dark"] label,
+.app[data-theme="dark"] .muted {
+  color: #94a3b8;
+}
+
+.app[data-theme="dark"] .status-pill {
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.app[data-theme="dark"] .status-route__step {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.app[data-theme="dark"] .card,
+.app[data-theme="dark"] .toast,
+.app[data-theme="dark"] .modal-card {
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(148, 163, 184, 0.2);
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.55);
+}
+
+.app[data-theme="dark"] .modal {
+  background: rgba(2, 6, 23, 0.6);
+}
+
+.app[data-theme="dark"] .update-message {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.app[data-theme="dark"] .chart-settings {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.app[data-theme="dark"] .segmented {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.app[data-theme="dark"] .segmented button {
+  color: #e2e8f0;
+}
+
+.app[data-theme="dark"] .segmented button.active {
+  background: rgba(148, 163, 184, 0.2);
+  color: #f8fafc;
+}
+
+.app[data-theme="dark"] input,
+.app[data-theme="dark"] select {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #e2e8f0;
+}
+
+.app[data-theme="dark"] button.ghost {
+  border-color: rgba(148, 163, 184, 0.3);
+  color: #e2e8f0;
+}
+
+.app[data-theme="dark"] .metric,
+.app[data-theme="dark"] .pill,
+.app[data-theme="dark"] .update-history-item {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.app[data-theme="dark"] .indicator-menu summary,
+.app[data-theme="dark"] .indicator-info {
+  color: #e2e8f0;
+}
+
+.app[data-theme="dark"] .indicator-info {
+  border-color: rgba(148, 163, 184, 0.45);
+}
+
+.app[data-theme="dark"] .number-highlight {
+  background: rgba(250, 204, 21, 0.2);
+  color: #facc15;
+}
+
+.app[data-theme="dark"] .theme-toggle {
+  background: rgba(15, 23, 42, 0.8);
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #e2e8f0;
 }
 
 @media (max-width: 1100px) {

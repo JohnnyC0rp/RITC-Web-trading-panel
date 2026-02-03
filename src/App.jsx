@@ -29,6 +29,7 @@ const DMA_CASES = [
 ];
 
 const CONNECTION_PREFS_KEY = "privodJohnnyConnectionPrefs";
+const UI_PREFS_KEY = "privodJohnnyUiPrefs";
 const UPDATE_SEEN_KEY = "privodJohnnyLastUpdateSeen";
 const UPDATE_SOURCE_PATH = `${import.meta.env.BASE_URL}versions.txt`;
 const UPDATE_SEPARATOR = "==================";
@@ -41,6 +42,64 @@ const POLL_TRADER_MS = 1000;
 const POLL_TAS_MS = 1000;
 const POLL_FILLS_MS = 1000;
 const CANDLE_BUCKET = 5;
+
+const INDICATORS = [
+  { id: "sma20", label: "SMA 20", description: "Simple moving average of the last 20 closes.", axis: "overlay" },
+  { id: "sma50", label: "SMA 50", description: "Simple moving average of the last 50 closes.", axis: "overlay" },
+  { id: "sma100", label: "SMA 100", description: "Simple moving average of the last 100 closes.", axis: "overlay" },
+  { id: "sma200", label: "SMA 200", description: "Simple moving average of the last 200 closes.", axis: "overlay" },
+  { id: "ema9", label: "EMA 9", description: "Exponential moving average with a 9-period window.", axis: "overlay" },
+  { id: "ema21", label: "EMA 21", description: "Exponential moving average with a 21-period window.", axis: "overlay" },
+  { id: "ema50", label: "EMA 50", description: "Exponential moving average with a 50-period window.", axis: "overlay" },
+  { id: "wma20", label: "WMA 20", description: "Weighted moving average with linear weights over 20 periods.", axis: "overlay" },
+  { id: "dema20", label: "DEMA 20", description: "Double exponential moving average for faster response.", axis: "overlay" },
+  {
+    id: "bollinger",
+    label: "Bollinger Bands",
+    description: "SMA 20 with upper/lower bands set at 2 standard deviations.",
+    axis: "overlay",
+  },
+  {
+    id: "keltner",
+    label: "Keltner Channels",
+    description: "EMA 20 with bands based on ATR for volatility envelopes.",
+    axis: "overlay",
+  },
+  {
+    id: "donchian",
+    label: "Donchian Channels",
+    description: "Highest high and lowest low over the last 20 periods.",
+    axis: "overlay",
+  },
+  { id: "rsi14", label: "RSI 14", description: "Relative Strength Index (0-100 momentum).", axis: "oscillator" },
+  {
+    id: "macd",
+    label: "MACD",
+    description: "EMA 12-26 difference with a 9-period signal line.",
+    axis: "oscillator",
+  },
+  {
+    id: "stochastic",
+    label: "Stochastic",
+    description: "%K/%D oscillator based on recent highs and lows.",
+    axis: "oscillator",
+  },
+  { id: "atr14", label: "ATR 14", description: "Average True Range for volatility.", axis: "oscillator" },
+  { id: "adx14", label: "ADX 14", description: "Average Directional Index for trend strength.", axis: "oscillator" },
+  { id: "cci20", label: "CCI 20", description: "Commodity Channel Index using typical price.", axis: "oscillator" },
+  { id: "roc12", label: "ROC 12", description: "Rate of Change percentage over 12 periods.", axis: "oscillator" },
+  {
+    id: "williams14",
+    label: "Williams %R",
+    description: "Williams Percent Range oscillator over 14 periods.",
+    axis: "oscillator",
+  },
+];
+
+const INDICATOR_DEFAULTS = Object.fromEntries(INDICATORS.map((indicator) => [indicator.id, false]));
+const OSCILLATOR_INDICATORS = INDICATORS.filter((indicator) => indicator.axis === "oscillator").map(
+  (indicator) => indicator.id
+);
 
 const normalizeBaseUrl = (url) =>
   url.replace(/\/+$/, "").replace(/\/v1$/i, "").replace(/\/v1\/$/i, "");
@@ -76,6 +135,23 @@ const saveConnectionPrefs = (payload) => {
     localStorage.setItem(CONNECTION_PREFS_KEY, JSON.stringify(payload));
   } catch {
     // If storage is blocked, we keep calm and carry on. 🙂
+  }
+};
+
+const loadUiPrefs = () => {
+  try {
+    const raw = localStorage.getItem(UI_PREFS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveUiPrefs = (payload) => {
+  try {
+    localStorage.setItem(UI_PREFS_KEY, JSON.stringify(payload));
+  } catch {
+    // UI prefs are shy sometimes; we let them hide. 🙂
   }
 };
 
@@ -246,6 +322,320 @@ const aggregateCandles = (rows, bucketSize = CANDLE_BUCKET) => {
   return Array.from(buckets.values()).sort((a, b) => a.tick - b.tick);
 };
 
+const calcSMA = (values, window) => {
+  const result = [];
+  for (let i = 0; i < values.length; i += 1) {
+    if (i + 1 < window) {
+      result.push(null);
+      continue;
+    }
+    const slice = values.slice(i + 1 - window, i + 1);
+    if (slice.some((value) => !Number.isFinite(value))) {
+      result.push(null);
+      continue;
+    }
+    const avg = slice.reduce((sum, value) => sum + value, 0) / window;
+    result.push(Number(avg.toFixed(4)));
+  }
+  return result;
+};
+
+const calcEMA = (values, window) => {
+  const k = 2 / (window + 1);
+  const result = [];
+  let ema = null;
+  const seed = [];
+  values.forEach((value) => {
+    if (!Number.isFinite(value)) {
+      result.push(null);
+      return;
+    }
+    if (ema === null) {
+      seed.push(value);
+      if (seed.length < window) {
+        result.push(null);
+        return;
+      }
+      const avg = seed.reduce((sum, entry) => sum + entry, 0) / window;
+      ema = avg;
+      result.push(Number(ema.toFixed(4)));
+      return;
+    }
+    // We smooth the EMA because price already brings enough drama.
+    ema = value * k + ema * (1 - k);
+    result.push(Number(ema.toFixed(4)));
+  });
+  return result;
+};
+
+const calcRSI = (values, window) => {
+  const result = Array(values.length).fill(null);
+  if (values.length <= window) return result;
+  let gains = 0;
+  let losses = 0;
+  for (let i = 1; i <= window; i += 1) {
+    const diff = values[i] - values[i - 1];
+    if (!Number.isFinite(diff)) continue;
+    if (diff >= 0) gains += diff;
+    else losses += Math.abs(diff);
+  }
+  let avgGain = gains / window;
+  let avgLoss = losses / window;
+  if (Number.isFinite(avgGain) && Number.isFinite(avgLoss)) {
+    const rs = avgLoss === 0 ? Infinity : avgGain / avgLoss;
+    result[window] = Number((100 - 100 / (1 + rs)).toFixed(4));
+  }
+  for (let i = window + 1; i < values.length; i += 1) {
+    const diff = values[i] - values[i - 1];
+    if (!Number.isFinite(diff)) {
+      result[i] = null;
+      continue;
+    }
+    const gain = diff > 0 ? diff : 0;
+    const loss = diff < 0 ? Math.abs(diff) : 0;
+    avgGain = (avgGain * (window - 1) + gain) / window;
+    avgLoss = (avgLoss * (window - 1) + loss) / window;
+    const rs = avgLoss === 0 ? Infinity : avgGain / avgLoss;
+    result[i] = Number((100 - 100 / (1 + rs)).toFixed(4));
+  }
+  return result;
+};
+
+const calcWMA = (values, window) => {
+  const result = [];
+  const denom = (window * (window + 1)) / 2;
+  for (let i = 0; i < values.length; i += 1) {
+    if (i + 1 < window) {
+      result.push(null);
+      continue;
+    }
+    const slice = values.slice(i + 1 - window, i + 1);
+    if (slice.some((value) => !Number.isFinite(value))) {
+      result.push(null);
+      continue;
+    }
+    let sum = 0;
+    for (let j = 0; j < window; j += 1) {
+      sum += slice[j] * (j + 1);
+    }
+    result.push(Number((sum / denom).toFixed(4)));
+  }
+  return result;
+};
+
+const calcStdDev = (values, window) => {
+  const result = [];
+  for (let i = 0; i < values.length; i += 1) {
+    if (i + 1 < window) {
+      result.push(null);
+      continue;
+    }
+    const slice = values.slice(i + 1 - window, i + 1);
+    if (slice.some((value) => !Number.isFinite(value))) {
+      result.push(null);
+      continue;
+    }
+    const mean = slice.reduce((sum, value) => sum + value, 0) / window;
+    const variance = slice.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / window;
+    result.push(Number(Math.sqrt(variance).toFixed(4)));
+  }
+  return result;
+};
+
+const calcDEMA = (values, window) => {
+  const ema1 = calcEMA(values, window);
+  const ema2 = calcEMA(ema1, window);
+  return ema1.map((value, index) => {
+    const second = ema2[index];
+    if (!Number.isFinite(value) || !Number.isFinite(second)) return null;
+    return Number((2 * value - second).toFixed(4));
+  });
+};
+
+const calcATR = (highs, lows, closes, window) => {
+  const tr = highs.map((high, index) => {
+    const low = lows[index];
+    const close = closes[index];
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) return null;
+    const prevClose = index > 0 ? closes[index - 1] : close;
+    if (!Number.isFinite(prevClose)) return null;
+    const range = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+    return Number(range.toFixed(4));
+  });
+  return calcEMA(tr, window);
+};
+
+const calcStochastic = (highs, lows, closes, kWindow, dWindow) => {
+  const kValues = [];
+  for (let i = 0; i < closes.length; i += 1) {
+    if (i + 1 < kWindow) {
+      kValues.push(null);
+      continue;
+    }
+    const highSlice = highs.slice(i + 1 - kWindow, i + 1);
+    const lowSlice = lows.slice(i + 1 - kWindow, i + 1);
+    if (highSlice.some((value) => !Number.isFinite(value)) || lowSlice.some((value) => !Number.isFinite(value))) {
+      kValues.push(null);
+      continue;
+    }
+    const highestHigh = Math.max(...highSlice);
+    const lowestLow = Math.min(...lowSlice);
+    const denom = highestHigh - lowestLow;
+    if (!Number.isFinite(denom) || denom === 0 || !Number.isFinite(closes[i])) {
+      kValues.push(null);
+      continue;
+    }
+    const value = ((closes[i] - lowestLow) / denom) * 100;
+    kValues.push(Number(value.toFixed(4)));
+  }
+  const dValues = calcSMA(kValues, dWindow);
+  return { k: kValues, d: dValues };
+};
+
+const calcADX = (highs, lows, closes, window) => {
+  const plusDM = [];
+  const minusDM = [];
+  const tr = [];
+  for (let i = 0; i < highs.length; i += 1) {
+    if (i === 0) {
+      plusDM.push(null);
+      minusDM.push(null);
+      tr.push(null);
+      continue;
+    }
+    const upMove = highs[i] - highs[i - 1];
+    const downMove = lows[i - 1] - lows[i];
+    const plus = upMove > downMove && upMove > 0 ? upMove : 0;
+    const minus = downMove > upMove && downMove > 0 ? downMove : 0;
+    plusDM.push(Number(plus.toFixed(4)));
+    minusDM.push(Number(minus.toFixed(4)));
+    const prevClose = closes[i - 1];
+    const range = Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - prevClose),
+      Math.abs(lows[i] - prevClose)
+    );
+    tr.push(Number(range.toFixed(4)));
+  }
+  const smoothedTR = calcEMA(tr, window);
+  const smoothedPlus = calcEMA(plusDM, window);
+  const smoothedMinus = calcEMA(minusDM, window);
+  const dx = smoothedTR.map((range, index) => {
+    const plus = smoothedPlus[index];
+    const minus = smoothedMinus[index];
+    if (!Number.isFinite(range) || range === 0 || !Number.isFinite(plus) || !Number.isFinite(minus)) {
+      return null;
+    }
+    const plusDI = (100 * plus) / range;
+    const minusDI = (100 * minus) / range;
+    const sum = plusDI + minusDI;
+    if (!Number.isFinite(sum) || sum === 0) return null;
+    return Number(((100 * Math.abs(plusDI - minusDI)) / sum).toFixed(4));
+  });
+  return calcEMA(dx, window);
+};
+
+const calcCCI = (highs, lows, closes, window) => {
+  const typical = highs.map((high, index) => {
+    const low = lows[index];
+    const close = closes[index];
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) return null;
+    return (high + low + close) / 3;
+  });
+  const sma = calcSMA(typical, window);
+  return typical.map((value, index) => {
+    if (!Number.isFinite(value) || !Number.isFinite(sma[index])) return null;
+    if (index + 1 < window) return null;
+    const slice = typical.slice(index + 1 - window, index + 1);
+    if (slice.some((entry) => !Number.isFinite(entry))) return null;
+    const meanDev =
+      slice.reduce((sum, entry) => sum + Math.abs(entry - sma[index]), 0) / window;
+    if (!Number.isFinite(meanDev) || meanDev === 0) return null;
+    return Number(((value - sma[index]) / (0.015 * meanDev)).toFixed(4));
+  });
+};
+
+const calcROC = (values, window) => {
+  return values.map((value, index) => {
+    if (index < window) return null;
+    const prev = values[index - window];
+    if (!Number.isFinite(value) || !Number.isFinite(prev) || prev === 0) return null;
+    return Number((((value - prev) / prev) * 100).toFixed(4));
+  });
+};
+
+const calcWilliamsR = (highs, lows, closes, window) => {
+  return closes.map((close, index) => {
+    if (index + 1 < window) return null;
+    const highSlice = highs.slice(index + 1 - window, index + 1);
+    const lowSlice = lows.slice(index + 1 - window, index + 1);
+    if (highSlice.some((value) => !Number.isFinite(value)) || lowSlice.some((value) => !Number.isFinite(value))) {
+      return null;
+    }
+    const highestHigh = Math.max(...highSlice);
+    const lowestLow = Math.min(...lowSlice);
+    const denom = highestHigh - lowestLow;
+    if (!Number.isFinite(denom) || denom === 0 || !Number.isFinite(close)) return null;
+    return Number((((highestHigh - close) / denom) * -100).toFixed(4));
+  });
+};
+
+const calcDonchian = (highs, lows, window) => {
+  const upper = [];
+  const lower = [];
+  for (let i = 0; i < highs.length; i += 1) {
+    if (i + 1 < window) {
+      upper.push(null);
+      lower.push(null);
+      continue;
+    }
+    const highSlice = highs.slice(i + 1 - window, i + 1);
+    const lowSlice = lows.slice(i + 1 - window, i + 1);
+    if (highSlice.some((value) => !Number.isFinite(value)) || lowSlice.some((value) => !Number.isFinite(value))) {
+      upper.push(null);
+      lower.push(null);
+      continue;
+    }
+    upper.push(Number(Math.max(...highSlice).toFixed(4)));
+    lower.push(Number(Math.min(...lowSlice).toFixed(4)));
+  }
+  return { upper, lower };
+};
+
+const calcKeltner = (highs, lows, closes, window, multiplier) => {
+  const typical = highs.map((high, index) => {
+    const low = lows[index];
+    const close = closes[index];
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) return null;
+    return (high + low + close) / 3;
+  });
+  const middle = calcEMA(typical, window);
+  const atr = calcATR(highs, lows, closes, window);
+  const upper = middle.map((value, index) => {
+    const range = atr[index];
+    if (!Number.isFinite(value) || !Number.isFinite(range)) return null;
+    return Number((value + multiplier * range).toFixed(4));
+  });
+  const lower = middle.map((value, index) => {
+    const range = atr[index];
+    if (!Number.isFinite(value) || !Number.isFinite(range)) return null;
+    return Number((value - multiplier * range).toFixed(4));
+  });
+  return { upper, middle, lower };
+};
+
+const calcMACD = (values, fastWindow, slowWindow, signalWindow) => {
+  const fast = calcEMA(values, fastWindow);
+  const slow = calcEMA(values, slowWindow);
+  const macd = fast.map((value, index) => {
+    const slowValue = slow[index];
+    if (!Number.isFinite(value) || !Number.isFinite(slowValue)) return null;
+    return Number((value - slowValue).toFixed(4));
+  });
+  const signal = calcEMA(macd, signalWindow);
+  return { macd, signal };
+};
+
 const getVolumeTone = (ratio) => {
   if (ratio >= 0.6) return "deep";
   if (ratio >= 0.3) return "mid";
@@ -320,11 +710,13 @@ function App() {
     "https://privod-johnny-ritc-api-cors-proxy.matveyrotte.workers.dev"
   );
   const [prefsHydrated, setPrefsHydrated] = useState(false);
+  const [uiPrefsHydrated, setUiPrefsHydrated] = useState(false);
   const [chartView, setChartView] = useState({});
   const [showChartSettings, setShowChartSettings] = useState(false);
   const [showRangeSlider, setShowRangeSlider] = useState(false);
-  const [showMa20, setShowMa20] = useState(true);
-  const [showMa50, setShowMa50] = useState(false);
+  const [indicatorState, setIndicatorState] = useState(INDICATOR_DEFAULTS);
+  const [indicatorInfo, setIndicatorInfo] = useState(null);
+  const [theme, setTheme] = useState("light");
 
   const [orderDraft, setOrderDraft] = useState({
     ticker: "",
@@ -336,6 +728,10 @@ function App() {
   useEffect(() => {
     document.title = "Privod Johnny";
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   useEffect(() => {
     let alive = true;
@@ -386,6 +782,22 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const stored = loadUiPrefs();
+    if (stored) {
+      if (stored.theme) setTheme(stored.theme);
+      if (typeof stored.showRangeSlider === "boolean") setShowRangeSlider(stored.showRangeSlider);
+      if (typeof stored.showChartSettings === "boolean") setShowChartSettings(stored.showChartSettings);
+      if (stored.indicators) {
+        setIndicatorState((prev) => ({
+          ...prev,
+          ...stored.indicators,
+        }));
+      }
+    }
+    setUiPrefsHydrated(true);
+  }, []);
+
+  useEffect(() => {
     if (!prefsHydrated) return;
     const payload = {
       mode,
@@ -408,6 +820,16 @@ function App() {
     useProxyLocal,
     useProxyRemote,
   ]);
+
+  useEffect(() => {
+    if (!uiPrefsHydrated) return;
+    saveUiPrefs({
+      theme,
+      showRangeSlider,
+      showChartSettings,
+      indicators: indicatorState,
+    });
+  }, [indicatorState, showChartSettings, showRangeSlider, theme, uiPrefsHydrated]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -1503,24 +1925,68 @@ function App() {
     };
   }, [candles]);
 
-  const sma = useMemo(() => {
-    if (!candles.length) return { ma20: [], ma50: [] };
-    const closes = candles.map((c) => c.close);
+  const indicatorData = useMemo(() => {
+    if (!candles.length) return null;
     const ticks = candles.map((c) => c.tick);
-    const calc = (window) => {
-      const values = [];
-      for (let i = 0; i < closes.length; i += 1) {
-        if (i + 1 < window) {
-          values.push(null);
-          continue;
-        }
-        const slice = closes.slice(i + 1 - window, i + 1);
-        const avg = slice.reduce((sum, val) => sum + val, 0) / window;
-        values.push(Number(avg.toFixed(4)));
-      }
-      return { x: ticks, y: values };
+    const highs = candles.map((c) => c.high);
+    const lows = candles.map((c) => c.low);
+    const closes = candles.map((c) => c.close);
+    const sma20 = calcSMA(closes, 20);
+    const sma50 = calcSMA(closes, 50);
+    const sma100 = calcSMA(closes, 100);
+    const sma200 = calcSMA(closes, 200);
+    const ema9 = calcEMA(closes, 9);
+    const ema21 = calcEMA(closes, 21);
+    const ema50 = calcEMA(closes, 50);
+    const wma20 = calcWMA(closes, 20);
+    const dema20 = calcDEMA(closes, 20);
+    const std20 = calcStdDev(closes, 20);
+    const bollinger = {
+      upper: sma20.map((value, index) => {
+        const dev = std20[index];
+        if (!Number.isFinite(value) || !Number.isFinite(dev)) return null;
+        return Number((value + 2 * dev).toFixed(4));
+      }),
+      middle: sma20,
+      lower: sma20.map((value, index) => {
+        const dev = std20[index];
+        if (!Number.isFinite(value) || !Number.isFinite(dev)) return null;
+        return Number((value - 2 * dev).toFixed(4));
+      }),
     };
-    return { ma20: calc(20), ma50: calc(50) };
+    const keltner = calcKeltner(highs, lows, closes, 20, 1.5);
+    const donchian = calcDonchian(highs, lows, 20);
+    const rsi14 = calcRSI(closes, 14);
+    const macd = calcMACD(closes, 12, 26, 9);
+    const stochastic = calcStochastic(highs, lows, closes, 14, 3);
+    const atr14 = calcATR(highs, lows, closes, 14);
+    const adx14 = calcADX(highs, lows, closes, 14);
+    const cci20 = calcCCI(highs, lows, closes, 20);
+    const roc12 = calcROC(closes, 12);
+    const williams14 = calcWilliamsR(highs, lows, closes, 14);
+    return {
+      ticks,
+      sma20,
+      sma50,
+      sma100,
+      sma200,
+      ema9,
+      ema21,
+      ema50,
+      wma20,
+      dema20,
+      bollinger,
+      keltner,
+      donchian,
+      rsi14,
+      macd,
+      stochastic,
+      atr14,
+      adx14,
+      cci20,
+      roc12,
+      williams14,
+    };
   }, [candles]);
 
   const dealTrace = useMemo(() => {
@@ -1573,6 +2039,71 @@ function App() {
     });
     return { opens, closes };
   }, [fills, selectedTicker]);
+
+  const indicatorTraces = useMemo(() => {
+    if (!indicatorData) return [];
+    const traces = [];
+    const axis = "y2";
+    const addLine = (name, values, color, targetAxis = "y") => {
+      traces.push({
+        type: "scatter",
+        mode: "lines",
+        name,
+        x: indicatorData.ticks,
+        y: values,
+        line: { color, width: 1.6 },
+        yaxis: targetAxis,
+      });
+    };
+    if (indicatorState.sma20) addLine("SMA 20", indicatorData.sma20, "#1f77b4");
+    if (indicatorState.sma50) addLine("SMA 50", indicatorData.sma50, "#9467bd");
+    if (indicatorState.sma100) addLine("SMA 100", indicatorData.sma100, "#0ea5e9");
+    if (indicatorState.sma200) addLine("SMA 200", indicatorData.sma200, "#6366f1");
+    if (indicatorState.ema9) addLine("EMA 9", indicatorData.ema9, "#22c55e");
+    if (indicatorState.ema21) addLine("EMA 21", indicatorData.ema21, "#16a34a");
+    if (indicatorState.ema50) addLine("EMA 50", indicatorData.ema50, "#15803d");
+    if (indicatorState.wma20) addLine("WMA 20", indicatorData.wma20, "#f59e0b");
+    if (indicatorState.dema20) addLine("DEMA 20", indicatorData.dema20, "#f97316");
+    if (indicatorState.bollinger) {
+      addLine("Bollinger Upper", indicatorData.bollinger.upper, "#94a3b8");
+      addLine("Bollinger Mid", indicatorData.bollinger.middle, "#64748b");
+      addLine("Bollinger Lower", indicatorData.bollinger.lower, "#94a3b8");
+    }
+    if (indicatorState.keltner) {
+      addLine("Keltner Upper", indicatorData.keltner.upper, "#22d3ee");
+      addLine("Keltner Mid", indicatorData.keltner.middle, "#0ea5e9");
+      addLine("Keltner Lower", indicatorData.keltner.lower, "#22d3ee");
+    }
+    if (indicatorState.donchian) {
+      addLine("Donchian Upper", indicatorData.donchian.upper, "#f472b6");
+      addLine("Donchian Lower", indicatorData.donchian.lower, "#f472b6");
+    }
+    if (indicatorState.rsi14) addLine("RSI 14", indicatorData.rsi14, "#a855f7", axis);
+    if (indicatorState.macd) {
+      addLine("MACD", indicatorData.macd.macd, "#f97316", axis);
+      addLine("MACD Signal", indicatorData.macd.signal, "#fb7185", axis);
+    }
+    if (indicatorState.stochastic) {
+      addLine("Stochastic %K", indicatorData.stochastic.k, "#38bdf8", axis);
+      addLine("Stochastic %D", indicatorData.stochastic.d, "#0ea5e9", axis);
+    }
+    if (indicatorState.atr14) addLine("ATR 14", indicatorData.atr14, "#facc15", axis);
+    if (indicatorState.adx14) addLine("ADX 14", indicatorData.adx14, "#ef4444", axis);
+    if (indicatorState.cci20) addLine("CCI 20", indicatorData.cci20, "#14b8a6", axis);
+    if (indicatorState.roc12) addLine("ROC 12", indicatorData.roc12, "#22c55e", axis);
+    if (indicatorState.williams14)
+      addLine("Williams %R", indicatorData.williams14, "#f472b6", axis);
+    return traces;
+  }, [indicatorData, indicatorState]);
+
+  const showOscillatorAxis = useMemo(
+    () => OSCILLATOR_INDICATORS.some((id) => indicatorState[id]),
+    [indicatorState]
+  );
+
+  const chartGridColor = theme === "dark" ? "rgba(148, 163, 184, 0.2)" : "rgba(0,0,0,0.08)";
+  const chartTextColor = theme === "dark" ? "#e2e8f0" : "#0f172a";
+  const chartPlotBg = theme === "dark" ? "#0f172a" : "#F6F2EA";
 
   const chartData = candleData
     ? [
@@ -1630,49 +2161,37 @@ function App() {
               },
             ]
           : []),
-        ...(showMa20
-          ? [
-              {
-                type: "scatter",
-                mode: "lines",
-                name: "SMA 20",
-                x: sma.ma20.x,
-                y: sma.ma20.y,
-                line: { color: "#1f77b4", width: 2 },
-              },
-            ]
-          : []),
-        ...(showMa50
-          ? [
-              {
-                type: "scatter",
-                mode: "lines",
-                name: "SMA 50",
-                x: sma.ma50.x,
-                y: sma.ma50.y,
-                line: { color: "#9467bd", width: 2 },
-              },
-            ]
-          : []),
+        ...indicatorTraces,
       ]
     : [];
 
   const chartLayout = {
     paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "#F6F2EA",
+    plot_bgcolor: chartPlotBg,
     margin: { l: 40, r: 20, t: 30, b: 30 },
     dragmode: "zoom",
+    font: { color: chartTextColor },
     xaxis: {
       title: "Tick",
-      gridcolor: "rgba(0,0,0,0.08)",
-      tickfont: { size: 10 },
+      gridcolor: chartGridColor,
+      tickfont: { size: 10, color: chartTextColor },
       rangeslider: { visible: showRangeSlider },
     },
     yaxis: {
       title: "Price",
-      gridcolor: "rgba(0,0,0,0.08)",
-      tickfont: { size: 10 },
+      gridcolor: chartGridColor,
+      tickfont: { size: 10, color: chartTextColor },
     },
+    ...(showOscillatorAxis
+      ? {
+          yaxis2: {
+            overlaying: "y",
+            side: "right",
+            showgrid: false,
+            tickfont: { size: 9, color: chartTextColor },
+          },
+        }
+      : {}),
     uirevision: selectedTicker,
     ...chartView,
   };
@@ -1701,11 +2220,12 @@ function App() {
 
   const pnlLayout = {
     paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "#F6F2EA",
+    plot_bgcolor: chartPlotBg,
     margin: { l: 40, r: 16, t: 14, b: 28 },
     height: 230,
-    xaxis: { showgrid: false, tickfont: { size: 9 } },
-    yaxis: { tickfont: { size: 10 }, zeroline: true },
+    font: { color: chartTextColor },
+    xaxis: { showgrid: false, tickfont: { size: 9, color: chartTextColor } },
+    yaxis: { tickfont: { size: 10, color: chartTextColor }, zeroline: true, gridcolor: chartGridColor },
   };
 
   const latestPnl = pnlSeries.length ? pnlSeries[pnlSeries.length - 1]?.pnl : null;
@@ -1832,7 +2352,7 @@ function App() {
   }, [connectionStatus, lastBookUpdateAt, lastConnectAt, now]);
 
   return (
-    <div className="app" onContextMenu={(event) => event.preventDefault()}>
+    <div className="app" data-theme={theme} onContextMenu={(event) => event.preventDefault()}>
       <div className="toast-stack" aria-live="polite">
         {tenders.map((tender) => (
           <div key={tender.tender_id} className="toast tender">
@@ -1925,6 +2445,19 @@ function App() {
               <span className="status-meta">Ticks left: {ticksLeft}</span>
             </>
           )}
+        </div>
+        <div className="hero-actions">
+          <button
+            type="button"
+            className="theme-toggle"
+            aria-pressed={theme === "dark"}
+            onClick={() => setTheme((prev) => (prev === "dark" ? "light" : "dark"))}
+          >
+            <span className="theme-toggle__label">{theme === "dark" ? "Dark" : "Light"}</span>
+            <span className="theme-toggle__track">
+              <span className="theme-toggle__thumb" />
+            </span>
+          </button>
         </div>
       </header>
 
@@ -2472,22 +3005,38 @@ function App() {
                     />
                     Enable range slider
                   </label>
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={showMa20}
-                      onChange={(event) => setShowMa20(event.target.checked)}
-                    />
-                    SMA 20
-                  </label>
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={showMa50}
-                      onChange={(event) => setShowMa50(event.target.checked)}
-                    />
-                    SMA 50
-                  </label>
+                  <details className="indicator-menu">
+                    <summary>Indicators ({INDICATORS.length})</summary>
+                    <div className="indicator-list">
+                      {INDICATORS.map((indicator) => (
+                        <label key={indicator.id} className="indicator-row">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(indicatorState[indicator.id])}
+                            onChange={() =>
+                              setIndicatorState((prev) => ({
+                                ...prev,
+                                [indicator.id]: !prev[indicator.id],
+                              }))
+                            }
+                          />
+                          <span>{indicator.label}</span>
+                          <button
+                            type="button"
+                            className="indicator-info"
+                            aria-label={`About ${indicator.label}`}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              setIndicatorInfo(indicator);
+                            }}
+                          >
+                            i
+                          </button>
+                        </label>
+                      ))}
+                    </div>
+                  </details>
                 </div>
               )}
               {candles.length === 0 ? (
@@ -2677,6 +3226,20 @@ function App() {
                 }}
               >
                 Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {indicatorInfo && (
+        <div className="modal">
+          <div className="modal-card indicator-card">
+            <h3>{indicatorInfo.label}</h3>
+            <p className="muted">{indicatorInfo.description}</p>
+            <div className="button-row">
+              <button type="button" className="primary" onClick={() => setIndicatorInfo(null)}>
+                Close
               </button>
             </div>
           </div>
