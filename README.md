@@ -2,6 +2,10 @@
   <img src="./public/logo-transparent.png" alt="Privod Johnny logo" width="72" height="72" />
 </p>
 
+<img width="1764" height="890" alt="Untitled" src="https://github.com/user-attachments/assets/05bd7bf3-ac50-4805-9576-8f66ab41ce7b" />
+
+
+
 # Privod Johnny — RITC Web Trading Panel
 
 A modern web interface that replaces the Excel / native Windows RIT client for connecting to RITC practice and live servers. It supports **Local (Client REST API)** and **Remote (DMA REST API)** flows, includes a live order book, candles (Plotly), and full API tooling.
