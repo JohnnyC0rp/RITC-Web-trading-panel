@@ -30,7 +30,7 @@ const DMA_CASES = [
 
 const CONNECTION_PREFS_KEY = "privodJohnnyConnectionPrefs";
 const UPDATE_SEEN_KEY = "privodJohnnyLastUpdateSeen";
-const UPDATE_SOURCE_PATH = "/last-update.txt";
+const UPDATE_SOURCE_PATH = `${import.meta.env.BASE_URL}last-update.txt`;
 
 const POLL_CASE_MS = 333;
 const POLL_BOOK_MS = 333;
