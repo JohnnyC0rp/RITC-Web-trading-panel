@@ -28,7 +28,7 @@ const DMA_CASES = [
   { id: "algo-mm", label: "Algo MM", ports: [16565, 16575, 16585] },
 ];
 
-const REMOTE_CREDS_KEY = "privodJohnnyRemoteCreds";
+const CONNECTION_PREFS_KEY = "privodJohnnyConnectionPrefs";
 
 const POLL_CASE_MS = 333;
 const POLL_BOOK_MS = 333;
@@ -59,18 +59,18 @@ const resolveCasePort = (caseId, algoPort) => {
   return entry.port ?? null;
 };
 
-const loadRemoteCreds = () => {
+const loadConnectionPrefs = () => {
   try {
-    const raw = localStorage.getItem(REMOTE_CREDS_KEY);
+    const raw = localStorage.getItem(CONNECTION_PREFS_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 };
 
-const saveRemoteCreds = (payload) => {
+const saveConnectionPrefs = (payload) => {
   try {
-    localStorage.setItem(REMOTE_CREDS_KEY, JSON.stringify(payload));
+    localStorage.setItem(CONNECTION_PREFS_KEY, JSON.stringify(payload));
   } catch {
     // If storage is blocked, we keep calm and carry on. 🙂
   }
@@ -268,15 +268,42 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const stored = loadRemoteCreds();
+    const stored = loadConnectionPrefs();
     if (!stored) return;
-    setRemoteConfig((prev) => ({
-      ...prev,
-      ...(stored.username ? { username: stored.username } : {}),
-      ...(stored.password ? { password: stored.password } : {}),
-      ...(stored.authMode ? { authMode: stored.authMode } : {}),
-    }));
+    if (stored.mode) setMode(stored.mode);
+    if (typeof stored.useProxyLocal === "boolean") setUseProxyLocal(stored.useProxyLocal);
+    if (typeof stored.useProxyRemote === "boolean") setUseProxyRemote(stored.useProxyRemote);
+    if (stored.proxyTargetRemote) setProxyTargetRemote(stored.proxyTargetRemote);
+    if (stored.cloudProxyUrl) setCloudProxyUrl(stored.cloudProxyUrl);
+    if (stored.localConfig) {
+      setLocalConfig((prev) => ({ ...prev, ...stored.localConfig }));
+    }
+    if (stored.remoteConfig) {
+      setRemoteConfig((prev) => ({ ...prev, ...stored.remoteConfig }));
+    }
   }, []);
+
+  useEffect(() => {
+    const payload = {
+      mode,
+      useProxyLocal,
+      useProxyRemote,
+      proxyTargetRemote,
+      cloudProxyUrl,
+      localConfig,
+      remoteConfig,
+    };
+    saveConnectionPrefs(payload);
+    // Yes Johnny, we save it all so you don't have to retype it. 🙂
+  }, [
+    cloudProxyUrl,
+    localConfig,
+    mode,
+    proxyTargetRemote,
+    remoteConfig,
+    useProxyLocal,
+    useProxyRemote,
+  ]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -442,13 +469,6 @@ function App() {
             },
           };
     try {
-      if (mode === "remote" && remoteConfig.authMode === "basic") {
-        saveRemoteCreds({
-          username: remoteConfig.username,
-          password: remoteConfig.password,
-          authMode: remoteConfig.authMode,
-        });
-      }
       const caseData = await requestWithConfig(cfg, "/case");
       setActiveConfig(cfg);
       setCaseInfo(caseData);
