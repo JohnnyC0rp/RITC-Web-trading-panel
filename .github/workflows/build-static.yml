@@ -31,6 +31,9 @@ jobs:
       - name: Build production bundle
         run: npm run build
 
+      - name: Copy update payload into docs
+        run: cp public/last-update.txt docs/last-update.txt
+
       - name: Commit docs
         run: |
           git config user.name "github-actions[bot]"
