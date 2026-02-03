@@ -1,3 +1,9 @@
+2026-02-03T18:40:06Z
+🎨 Small redesign and layout polish across the UI.
+🛠️ Bug fixes and general performance improvements.
+📈 20 new chart indicators with detailed descriptions.
+🌗 Dark + light theme support with a toggle.
+==================
 2026-02-03T00:00:00Z
 🧭 Case selection option is now available.
 🍪 Connection credentials are saved locally in cookies.
