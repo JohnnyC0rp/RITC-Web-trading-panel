@@ -250,6 +250,7 @@ function App() {
   const [cloudProxyUrl, setCloudProxyUrl] = useState(
     "https://privod-johnny-ritc-api-cors-proxy.matveyrotte.workers.dev"
   );
+  const [prefsHydrated, setPrefsHydrated] = useState(false);
   const [chartView, setChartView] = useState({});
   const [showChartSettings, setShowChartSettings] = useState(false);
   const [showRangeSlider, setShowRangeSlider] = useState(false);
@@ -269,21 +270,24 @@ function App() {
 
   useEffect(() => {
     const stored = loadConnectionPrefs();
-    if (!stored) return;
-    if (stored.mode) setMode(stored.mode);
-    if (typeof stored.useProxyLocal === "boolean") setUseProxyLocal(stored.useProxyLocal);
-    if (typeof stored.useProxyRemote === "boolean") setUseProxyRemote(stored.useProxyRemote);
-    if (stored.proxyTargetRemote) setProxyTargetRemote(stored.proxyTargetRemote);
-    if (stored.cloudProxyUrl) setCloudProxyUrl(stored.cloudProxyUrl);
-    if (stored.localConfig) {
-      setLocalConfig((prev) => ({ ...prev, ...stored.localConfig }));
+    if (stored) {
+      if (stored.mode) setMode(stored.mode);
+      if (typeof stored.useProxyLocal === "boolean") setUseProxyLocal(stored.useProxyLocal);
+      if (typeof stored.useProxyRemote === "boolean") setUseProxyRemote(stored.useProxyRemote);
+      if (stored.proxyTargetRemote) setProxyTargetRemote(stored.proxyTargetRemote);
+      if (stored.cloudProxyUrl) setCloudProxyUrl(stored.cloudProxyUrl);
+      if (stored.localConfig) {
+        setLocalConfig((prev) => ({ ...prev, ...stored.localConfig }));
+      }
+      if (stored.remoteConfig) {
+        setRemoteConfig((prev) => ({ ...prev, ...stored.remoteConfig }));
+      }
     }
-    if (stored.remoteConfig) {
-      setRemoteConfig((prev) => ({ ...prev, ...stored.remoteConfig }));
-    }
+    setPrefsHydrated(true);
   }, []);
 
   useEffect(() => {
+    if (!prefsHydrated) return;
     const payload = {
       mode,
       useProxyLocal,
@@ -300,6 +304,7 @@ function App() {
     localConfig,
     mode,
     proxyTargetRemote,
+    prefsHydrated,
     remoteConfig,
     useProxyLocal,
     useProxyRemote,
