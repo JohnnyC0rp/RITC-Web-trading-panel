@@ -1072,13 +1072,135 @@ button.full {
   }
 }
 
+@media (max-width: 900px) {
+  .app {
+    padding: 20px;
+    gap: 20px;
+  }
+
+  .hero {
+    padding: 22px 24px;
+  }
+
+  .hero-actions {
+    position: static;
+    transform: none;
+    justify-content: flex-start;
+    margin-bottom: 12px;
+  }
+
+  .pnl-charts {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 700px) {
+  /* Mobile layout: let everything breathe without turning into a Jenga tower. */
+  .app {
+    padding: 16px;
+    gap: 16px;
+  }
+
   .hero {
     flex-direction: column;
     align-items: flex-start;
+    padding: 20px;
   }
 
   .status-block {
     align-items: flex-start;
   }
+
+  .news-ticker {
+    width: 100%;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .layout,
+  .split {
+    gap: 14px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+
+  .snapshot-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .chart-settings {
+    width: 100%;
+  }
+
+  .indicator-list {
+    grid-template-columns: 1fr;
+  }
+
+  .button-row {
+    flex-wrap: wrap;
+  }
+
+  .toast-stack {
+    left: 12px;
+    right: 12px;
+  }
+
+  .toast {
+    max-width: calc(100vw - 24px);
+  }
+
+  .book-table {
+    overflow-x: auto;
+  }
+
+  .book-head,
+  .book-row {
+    min-width: 320px;
+  }
+}
+
+@media (max-width: 520px) {
+  .hero-title {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hero h1 {
+    font-size: 2.1rem;
+  }
+
+  .hero-logo {
+    width: 64px;
+    height: 64px;
+  }
+
+  .theme-toggle {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .status-route {
+    justify-content: flex-start;
+  }
+
+  .segmented {
+    grid-template-columns: 1fr;
+  }
+
+  .tender-actions,
+  .button-row {
+    justify-content: flex-start;
+  }
+
+  .tick-bar {
+    width: 100%;
+  }
+}
 }
