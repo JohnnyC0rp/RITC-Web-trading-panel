@@ -1,0 +1,4 @@
+2026-02-03T00:00:00Z
+🧭 Case selection option is now available.
+🍪 Connection credentials are saved locally in cookies.
+🧷 Proxy respects the base URL, including custom user base URLs.

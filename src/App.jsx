@@ -29,6 +29,8 @@ const DMA_CASES = [
 ];
 
 const CONNECTION_PREFS_KEY = "privodJohnnyConnectionPrefs";
+const UPDATE_SEEN_KEY = "privodJohnnyLastUpdateSeen";
+const UPDATE_SOURCE_PATH = "/last-update.txt";
 
 const POLL_CASE_MS = 333;
 const POLL_BOOK_MS = 333;
@@ -93,6 +95,15 @@ const safeJson = (text) => {
   } catch (error) {
     return { raw: text };
   }
+};
+
+const parseUpdatePayload = (raw) => {
+  if (!raw) return null;
+  const lines = raw.replace(/\r/g, "").split("\n");
+  const timestamp = lines.shift()?.trim();
+  if (!timestamp) return null;
+  const message = lines.join("\n").trim();
+  return { timestamp, message };
 };
 
 const formatNumber = (value, decimals = 2) => {
@@ -218,6 +229,8 @@ function App() {
   const [terminalUnlocked, setTerminalUnlocked] = useState(false);
   const [showTerminalPrompt, setShowTerminalPrompt] = useState(false);
   const [terminalLines, setTerminalLines] = useState([]);
+  const [showUpdatePrompt, setShowUpdatePrompt] = useState(false);
+  const [updatePayload, setUpdatePayload] = useState(null);
   const [lastBookInteraction, setLastBookInteraction] = useState(0);
   const [lastBookUpdateAt, setLastBookUpdateAt] = useState(0);
   const [lastConnectAt, setLastConnectAt] = useState(0);
@@ -266,6 +279,35 @@ function App() {
 
   useEffect(() => {
     document.title = "Privod Johnny";
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const loadUpdate = async () => {
+      try {
+        const response = await fetch(UPDATE_SOURCE_PATH, { cache: "no-store" });
+        if (!response.ok) return;
+        const raw = await response.text();
+        const payload = parseUpdatePayload(raw);
+        if (!payload || !alive) return;
+        let seenStamp = null;
+        try {
+          seenStamp = localStorage.getItem(UPDATE_SEEN_KEY);
+        } catch {
+          // If storage is blocked, we politely move on.
+        }
+        if (seenStamp !== payload.timestamp) {
+          setUpdatePayload(payload);
+          setShowUpdatePrompt(true);
+        }
+      } catch {
+        // No update available, no drama required.
+      }
+    };
+    loadUpdate();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -2523,6 +2565,40 @@ function App() {
               </button>
               <button type="button" className="ghost" onClick={() => setShowTerminalPrompt(false)}>
                 Not yet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showUpdatePrompt && updatePayload && (
+        <div className="modal">
+          <div className="modal-card update-card">
+            <h3>What’s New</h3>
+            <p className="muted">Updated: {updatePayload.timestamp}</p>
+            <div className="update-message">
+              {updatePayload.message ? (
+                updatePayload.message.split("\n").map((line, index) => (
+                  <div key={`update-line-${index}`}>{line || "\u00A0"}</div>
+                ))
+              ) : (
+                <div className="muted">No update details right now.</div>
+              )}
+            </div>
+            <div className="button-row">
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  try {
+                    localStorage.setItem(UPDATE_SEEN_KEY, updatePayload.timestamp);
+                  } catch {
+                    // Storage can be fussy; the update still got the spotlight.
+                  }
+                  setShowUpdatePrompt(false);
+                }}
+              >
+                Got it
               </button>
             </div>
           </div>
