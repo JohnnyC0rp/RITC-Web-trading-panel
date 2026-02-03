@@ -30,7 +30,8 @@ const DMA_CASES = [
 
 const CONNECTION_PREFS_KEY = "privodJohnnyConnectionPrefs";
 const UPDATE_SEEN_KEY = "privodJohnnyLastUpdateSeen";
-const UPDATE_SOURCE_PATH = `${import.meta.env.BASE_URL}last-update.txt`;
+const UPDATE_SOURCE_PATH = `${import.meta.env.BASE_URL}versions.txt`;
+const UPDATE_SEPARATOR = "==================";
 
 const POLL_CASE_MS = 333;
 const POLL_BOOK_MS = 333;
@@ -97,13 +98,21 @@ const safeJson = (text) => {
   }
 };
 
-const parseUpdatePayload = (raw) => {
-  if (!raw) return null;
-  const lines = raw.replace(/\r/g, "").split("\n");
-  const timestamp = lines.shift()?.trim();
-  if (!timestamp) return null;
-  const message = lines.join("\n").trim();
-  return { timestamp, message };
+const parseVersionHistory = (raw) => {
+  if (!raw) return [];
+  return raw
+    .replace(/\r/g, "")
+    .split(UPDATE_SEPARATOR)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      const lines = block.split("\n");
+      const timestamp = lines.shift()?.trim();
+      if (!timestamp) return null;
+      const message = lines.join("\n").trim();
+      return { timestamp, message };
+    })
+    .filter(Boolean);
 };
 
 const formatNumber = (value, decimals = 2) => {
@@ -335,16 +344,17 @@ function App() {
         const response = await fetch(UPDATE_SOURCE_PATH, { cache: "no-store" });
         if (!response.ok) return;
         const raw = await response.text();
-        const payload = parseUpdatePayload(raw);
-        if (!payload || !alive) return;
+        const updates = parseVersionHistory(raw);
+        if (!updates.length || !alive) return;
+        const latest = updates[0];
         let seenStamp = null;
         try {
           seenStamp = localStorage.getItem(UPDATE_SEEN_KEY);
         } catch {
           // If storage is blocked, we politely move on.
         }
-        if (seenStamp !== payload.timestamp) {
-          setUpdatePayload(payload);
+        if (seenStamp !== latest.timestamp) {
+          setUpdatePayload({ latest, updates });
           setShowUpdatePrompt(true);
         }
       } catch {
@@ -2624,14 +2634,33 @@ function App() {
         <div className="modal">
           <div className="modal-card update-card">
             <h3>What’s New</h3>
-            <p className="muted">Updated: {formatHumanDate(updatePayload.timestamp)}</p>
+            <p className="muted">Updated: {formatHumanDate(updatePayload.latest.timestamp)}</p>
             <div className="update-message">
-              {updatePayload.message ? (
-                updatePayload.message.split("\n").map((line, index) => (
+              {updatePayload.latest.message ? (
+                updatePayload.latest.message.split("\n").map((line, index) => (
                   <div key={`update-line-${index}`}>{line || "\u00A0"}</div>
                 ))
               ) : (
                 <div className="muted">No update details right now.</div>
+              )}
+              {updatePayload.updates.length > 1 && (
+                <details className="update-history">
+                  <summary>Previous updates</summary>
+                  <div className="update-history-list">
+                    {updatePayload.updates.slice(1).map((entry, index) => (
+                      <div key={`${entry.timestamp}-${index}`} className="update-history-item">
+                        <div className="muted">Updated: {formatHumanDate(entry.timestamp)}</div>
+                        {entry.message ? (
+                          entry.message.split("\n").map((line, lineIndex) => (
+                            <div key={`update-old-${index}-${lineIndex}`}>{line || "\u00A0"}</div>
+                          ))
+                        ) : (
+                          <div className="muted">No update details right now.</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </details>
               )}
             </div>
             <div className="button-row">
@@ -2640,7 +2669,7 @@ function App() {
                 className="primary"
                 onClick={() => {
                   try {
-                    localStorage.setItem(UPDATE_SEEN_KEY, updatePayload.timestamp);
+                    localStorage.setItem(UPDATE_SEEN_KEY, updatePayload.latest.timestamp);
                   } catch {
                     // Storage can be fussy; the update still got the spotlight.
                   }

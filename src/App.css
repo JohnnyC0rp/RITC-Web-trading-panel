@@ -803,6 +803,27 @@ button.full {
   line-height: 1.4;
 }
 
+.update-history {
+  margin-top: 12px;
+}
+
+.update-history summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.update-history-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.update-history-item {
+  padding-top: 10px;
+  border-top: 1px solid rgba(15, 23, 42, 0.1);
+}
+
 @media (max-width: 1100px) {
   .layout {
     grid-template-columns: 1fr;
