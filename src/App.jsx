@@ -381,7 +381,11 @@ function App() {
   );
 
   const requestWithConfig = useCallback(async (cfg, path, params, options = {}) => {
-    const url = buildUrl(cfg.baseUrl, path, params);
+    const mergedParams = {
+      ...(cfg.params || {}),
+      ...(params || {}),
+    };
+    const url = buildUrl(cfg.baseUrl, path, mergedParams);
     const headers = {
       Accept: "application/json",
       ...(cfg.headers || {}),
@@ -449,6 +453,18 @@ function App() {
         ? remoteConfig.authHeader
         : encodeBasic(remoteConfig.username, remoteConfig.password);
     const resolvedRemoteBase = remoteConfig.baseUrl;
+    const proxyParams = (() => {
+      if (!(useProxy && proxyTargetRemote === "remote")) return {};
+      try {
+        const parsed = new URL(resolvedRemoteBase);
+        return {
+          host: parsed.hostname || undefined,
+          port: parsed.port || undefined,
+        };
+      } catch {
+        return {};
+      }
+    })();
     const cfg =
       mode === "local"
         ? {
@@ -469,6 +485,7 @@ function App() {
                   }
                 : {}),
             },
+            params: proxyParams,
           };
     try {
       const caseData = await requestWithConfig(cfg, "/case");
