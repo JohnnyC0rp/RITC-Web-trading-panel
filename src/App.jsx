@@ -448,10 +448,7 @@ function App() {
       remoteConfig.authMode === "header"
         ? remoteConfig.authHeader
         : encodeBasic(remoteConfig.username, remoteConfig.password);
-    const selectedPort = resolveCasePort(remoteConfig.caseId, remoteConfig.algoPort);
-    const resolvedRemoteBase = selectedPort
-      ? updateUrlPort(remoteConfig.baseUrl, selectedPort)
-      : remoteConfig.baseUrl;
+    const resolvedRemoteBase = remoteConfig.baseUrl;
     const cfg =
       mode === "local"
         ? {
