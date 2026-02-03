@@ -1003,6 +1003,41 @@ button.full {
   background: rgba(148, 163, 184, 0.08);
 }
 
+.app[data-theme="dark"] .book-head {
+  color: #94a3b8;
+}
+
+.app[data-theme="dark"] .book-row {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.app[data-theme="dark"] .book-row.spread {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.app[data-theme="dark"] .book-row.mid {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.app[data-theme="dark"] .book-row .price,
+.app[data-theme="dark"] .book-value,
+.app[data-theme="dark"] .book-chip {
+  color: #e2e8f0;
+}
+
+.app[data-theme="dark"] .book-row .price.mid {
+  color: #93c5fd;
+}
+
+.app[data-theme="dark"] .book-cell {
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.app[data-theme="dark"] .book-chip {
+  background: rgba(148, 163, 184, 0.18);
+}
+
 .app[data-theme="dark"] .indicator-menu summary,
 .app[data-theme="dark"] .indicator-info {
   color: #e2e8f0;
