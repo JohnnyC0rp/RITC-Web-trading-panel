@@ -248,6 +248,14 @@
   color: #475569;
 }
 
+.number-highlight {
+  padding: 0 4px;
+  border-radius: 6px;
+  background: rgba(251, 191, 36, 0.25);
+  color: #92400e;
+  font-weight: 600;
+}
+
 .tender-input {
   width: 120px;
   padding: 6px 8px;

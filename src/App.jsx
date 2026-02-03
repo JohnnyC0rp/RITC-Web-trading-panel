@@ -165,6 +165,24 @@ const formatQty = (value) => {
   return formatted.replace(/,/g, " ");
 };
 
+const numberSplitRegex = /(-?\d+(?:[.,]\d+)?)/g;
+const numberTokenRegex = /^-?\d+(?:[.,]\d+)?$/;
+const highlightNumbers = (text) => {
+  if (text === null || text === undefined) return text;
+  const value = String(text);
+  const parts = value.split(numberSplitRegex);
+  if (parts.length === 1) return value;
+  return parts.map((part, index) =>
+    numberTokenRegex.test(part) ? (
+      <span key={`num-${index}`} className="number-highlight">
+        {part}
+      </span>
+    ) : (
+      part
+    )
+  );
+};
+
 const getQty = (level) =>
   level?.quantity ?? level?.qty ?? level?.size ?? level?.volume ?? null;
 
@@ -1810,10 +1828,12 @@ function App() {
           <div key={tender.tender_id} className="toast tender">
             <div className="tender-main">
               <div className="tender-title">
-                {tender.caption || `Tender ${tender.tender_id}`}
+                {highlightNumbers(tender.caption || `Tender ${tender.tender_id}`)}
               </div>
               <div className="tender-sub">
-                {tender.action} {tender.quantity} @ {tender.price ?? "MKT"} • {tender.ticker}
+                {highlightNumbers(
+                  `${tender.action} ${tender.quantity} @ ${tender.price ?? "MKT"} • ${tender.ticker}`
+                )}
               </div>
             </div>
             {!tender.is_fixed_bid && (
