@@ -119,6 +119,35 @@ const formatStamp = (date) => {
   )}`;
 };
 
+const formatHumanDate = (raw) => {
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  const day = parsed.getDate();
+  const suffix =
+    day % 10 === 1 && day % 100 !== 11
+      ? "st"
+      : day % 10 === 2 && day % 100 !== 12
+        ? "nd"
+        : day % 10 === 3 && day % 100 !== 13
+          ? "rd"
+          : "th";
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  return `${day}${suffix} ${months[parsed.getMonth()]} ${parsed.getFullYear()}`;
+};
+
 const formatHost = (rawUrl) => {
   try {
     const parsed = new URL(rawUrl);
@@ -2575,7 +2604,7 @@ function App() {
         <div className="modal">
           <div className="modal-card update-card">
             <h3>What’s New</h3>
-            <p className="muted">Updated: {updatePayload.timestamp}</p>
+            <p className="muted">Updated: {formatHumanDate(updatePayload.timestamp)}</p>
             <div className="update-message">
               {updatePayload.message ? (
                 updatePayload.message.split("\n").map((line, index) => (
