@@ -1546,10 +1546,11 @@ function App() {
   }, [selectedTicker]);
 
   useEffect(() => {
-    if (!config || !selectedTicker) return undefined;
+    if (!config) return undefined;
     let stop = false;
 
-    const pull = async () => {
+    const pullBook = async () => {
+      if (!selectedTicker) return;
       try {
         const bookData = await apiGet("/securities/book", {
           ticker: selectedTicker,
@@ -1571,13 +1572,51 @@ function App() {
       }
     };
 
+    const pullOrders = async () => {
+      try {
+        const orderData = await apiGet("/orders", { status: "OPEN" });
+        if (!stop) {
+          const nextOrders = orderData || [];
+          const prevOrders = openOrdersRef.current || [];
+          const prevMap = new Map(
+            prevOrders.map((order) => [order.order_id ?? order.id, order])
+          );
+          const nextMap = new Map(
+            nextOrders.map((order) => [order.order_id ?? order.id, order])
+          );
+          prevMap.forEach((order, orderId) => {
+            if (!nextMap.has(orderId)) {
+              const cancelledAt = cancelledOrdersRef.current.get(orderId);
+              if (!cancelledAt || Date.now() - cancelledAt > 8000) {
+                const qty = order.quantity ?? order.qty ?? "";
+                notify(`Order filled: ${order.ticker} ${qty} @ ${order.price}`, "success");
+              }
+              cancelledOrdersRef.current.delete(orderId);
+            }
+          });
+          openOrdersRef.current = nextOrders;
+          setOrders(nextOrders);
+        }
+      } catch (error) {
+        if (!stop && error?.status !== 429) {
+          log(`Orders error: ${error.message}`);
+          maybeSuggestProxy(error);
+        }
+      }
+    };
+
+    const pull = async () => {
+      await Promise.all([pullBook(), pullOrders()]);
+    };
+
     pull();
-    const id = setInterval(pull, POLL_INTERVALS_MS.book);
+    const intervalMs = Math.min(POLL_INTERVALS_MS.book, POLL_INTERVALS_MS.orders);
+    const id = setInterval(pull, intervalMs);
     return () => {
       stop = true;
       clearInterval(id);
     };
-  }, [apiGet, config, log, selectedTicker]);
+  }, [apiGet, config, log, maybeSuggestProxy, notify, selectedTicker]);
 
   useEffect(() => {
     if (!config) return undefined;
@@ -1669,51 +1708,6 @@ function App() {
     }, 1000);
     return () => clearInterval(id);
   }, []);
-
-  useEffect(() => {
-    if (!config || !selectedTicker) return undefined;
-    let stop = false;
-
-    const pull = async () => {
-      try {
-        const orderData = await apiGet("/orders", { status: "OPEN" });
-        if (!stop) {
-          const nextOrders = orderData || [];
-          const prevOrders = openOrdersRef.current || [];
-          const prevMap = new Map(
-            prevOrders.map((order) => [order.order_id ?? order.id, order])
-          );
-          const nextMap = new Map(
-            nextOrders.map((order) => [order.order_id ?? order.id, order])
-          );
-          prevMap.forEach((order, orderId) => {
-            if (!nextMap.has(orderId)) {
-              const cancelledAt = cancelledOrdersRef.current.get(orderId);
-              if (!cancelledAt || Date.now() - cancelledAt > 8000) {
-                const qty = order.quantity ?? order.qty ?? "";
-                notify(`Order filled: ${order.ticker} ${qty} @ ${order.price}`, "success");
-              }
-              cancelledOrdersRef.current.delete(orderId);
-            }
-          });
-          openOrdersRef.current = nextOrders;
-          setOrders(nextOrders);
-        }
-      } catch (error) {
-        if (!stop && error?.status !== 429) {
-          log(`Orders error: ${error.message}`);
-          maybeSuggestProxy(error);
-        }
-      }
-    };
-
-    pull();
-    const id = setInterval(pull, POLL_INTERVALS_MS.orders);
-    return () => {
-      stop = true;
-      clearInterval(id);
-    };
-  }, [apiGet, config, log, selectedTicker]);
 
   useEffect(() => {
     if (!config || !selectedTicker || caseInfo?.tick == null) return;
