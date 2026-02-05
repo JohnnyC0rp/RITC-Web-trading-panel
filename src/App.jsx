@@ -752,7 +752,6 @@ function App() {
   const [terminalLines, setTerminalLines] = useState([]);
   const [showUpdatePrompt, setShowUpdatePrompt] = useState(false);
   const [updatePayload, setUpdatePayload] = useState(null);
-  const [lastBookInteraction, setLastBookInteraction] = useState(0);
   const [lastBookUpdateAt, setLastBookUpdateAt] = useState(0);
   const [lastConnectAt, setLastConnectAt] = useState(0);
   const [notifications, setNotifications] = useState([]);
@@ -1953,38 +1952,7 @@ function App() {
     return map;
   }, [orders, quotedDecimals, selectedTicker]);
 
-  const markBookInteraction = () => {
-    setLastBookInteraction(Date.now());
-  };
-
-  const centerOrderBook = useCallback(() => {
-    const container = bookScrollRef.current;
-    if (!container) return;
-    const target = container.querySelector('[data-center="true"]');
-    if (!target) return;
-    const targetTop = target.offsetTop;
-    const targetHeight = target.offsetHeight || 0;
-    const containerHeight = container.clientHeight || 0;
-    const nextScrollTop = Math.max(0, targetTop - containerHeight / 2 + targetHeight / 2);
-    container.scrollTo({ top: nextScrollTop, behavior: "smooth" });
-  }, []);
-
-  useEffect(() => {
-    if (!priceRows.length || lastBookInteraction) return;
-    centerOrderBook();
-    setLastBookInteraction(Date.now());
-  }, [centerOrderBook, lastBookInteraction, priceRows.length]);
-
-  useEffect(() => {
-    if (!priceRows.length) return;
-    const interval = setInterval(() => {
-      if (Date.now() - lastBookInteraction > 5000) {
-        centerOrderBook();
-        setLastBookInteraction(Date.now());
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [centerOrderBook, lastBookInteraction, priceRows.length]);
+  // Order book scroll stays where the trader puts it. Autoscroll was cute, not useful.
 
   const candles = useMemo(() => aggregateCandles(history, 5), [history]);
 
@@ -2995,14 +2963,8 @@ function App() {
                   <span>Price</span>
                   <span>Ask Qty</span>
                 </div>
-                <div
-                  className="book-scroll"
-                  ref={bookScrollRef}
-                  onScroll={markBookInteraction}
-                  onWheel={markBookInteraction}
-                  onMouseDown={markBookInteraction}
-                  onTouchStart={markBookInteraction}
-                >
+                {/* Manual scroll stays manual. No auto-centering hijinks. */}
+                <div className="book-scroll" ref={bookScrollRef}>
                   {priceRows.map((row, index) => {
                     const bidRatio = row.bidQty / maxVolume;
                     const askRatio = row.askQty / maxVolume;
@@ -3015,10 +2977,7 @@ function App() {
                         key={`${row.price}-${index}`}
                         className={`book-row wide ${row.isMid ? "mid" : ""} ${row.isSpread ? "spread" : ""}`}
                         data-center={row.isCenter ? "true" : undefined}
-                        onClick={() => {
-                          markBookInteraction();
-                          placeQuickOrder(side, row.price);
-                        }}
+                        onClick={() => placeQuickOrder(side, row.price)}
                       >
                         <span
                           className="book-cell bid"
