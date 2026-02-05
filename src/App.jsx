@@ -34,13 +34,17 @@ const UPDATE_SEEN_KEY = "privodJohnnyLastUpdateSeen";
 const UPDATE_SOURCE_PATH = `${import.meta.env.BASE_URL}versions.txt`;
 const UPDATE_SEPARATOR = "==================";
 
-const POLL_CASE_MS = 333;
-const POLL_BOOK_MS = 333;
-const POLL_SECURITIES_MS = 2500;
-const POLL_ORDERS_MS = 2500;
-const POLL_TRADER_MS = 1000;
-const POLL_TAS_MS = 1000;
-const POLL_FILLS_MS = 1000;
+const POLL_INTERVALS_MS = {
+  case: 333,
+  book: 333,
+  securities: 2500,
+  orders: 2500,
+  trader: 1000,
+  tas: 1000,
+  fills: 1000,
+  tenders: 500,
+  news: 500,
+};
 const CANDLE_BUCKET = 5;
 
 const INDICATORS = [
@@ -1152,7 +1156,7 @@ function App() {
     };
 
     pull();
-    const id = setInterval(pull, POLL_CASE_MS);
+    const id = setInterval(pull, POLL_INTERVALS_MS.case);
     return () => {
       stop = true;
       clearInterval(id);
@@ -1207,7 +1211,7 @@ function App() {
     };
 
     pull();
-    const id = setInterval(pull, POLL_TAS_MS);
+    const id = setInterval(pull, POLL_INTERVALS_MS.tas);
     return () => {
       stop = true;
       clearInterval(id);
@@ -1249,7 +1253,7 @@ function App() {
     };
 
     pull();
-    const id = setInterval(pull, POLL_FILLS_MS);
+    const id = setInterval(pull, POLL_INTERVALS_MS.fills);
     return () => {
       stop = true;
       clearInterval(id);
@@ -1358,7 +1362,7 @@ function App() {
     };
 
     pull();
-    const id = setInterval(pull, POLL_TRADER_MS);
+    const id = setInterval(pull, POLL_INTERVALS_MS.trader);
     return () => {
       stop = true;
       clearInterval(id);
@@ -1475,7 +1479,7 @@ function App() {
     };
 
     pull();
-    const id = setInterval(pull, POLL_SECURITIES_MS);
+    const id = setInterval(pull, POLL_INTERVALS_MS.securities);
     return () => {
       stop = true;
       clearInterval(id);
@@ -1507,7 +1511,7 @@ function App() {
     };
 
     pull();
-    const id = setInterval(pull, 3000);
+    const id = setInterval(pull, POLL_INTERVALS_MS.tenders);
     return () => {
       stop = true;
       clearInterval(id);
@@ -1567,7 +1571,7 @@ function App() {
     };
 
     pull();
-    const id = setInterval(pull, POLL_BOOK_MS);
+    const id = setInterval(pull, POLL_INTERVALS_MS.book);
     return () => {
       stop = true;
       clearInterval(id);
@@ -1651,7 +1655,7 @@ function App() {
     };
 
     pull();
-    const id = setInterval(pull, 4000);
+    const id = setInterval(pull, POLL_INTERVALS_MS.news);
     return () => {
       stop = true;
       clearInterval(id);
@@ -1703,7 +1707,7 @@ function App() {
     };
 
     pull();
-    const id = setInterval(pull, POLL_ORDERS_MS);
+    const id = setInterval(pull, POLL_INTERVALS_MS.orders);
     return () => {
       stop = true;
       clearInterval(id);
