@@ -229,6 +229,41 @@
   margin-bottom: 12px;
 }
 
+.portfolio-row {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.portfolio-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.portfolio-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.portfolio-pill {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.portfolio-pill--long {
+  background: rgba(34, 197, 94, 0.18);
+  color: #0f3d2a;
+}
+
+.portfolio-pill--short {
+  background: rgba(239, 68, 68, 0.18);
+  color: #4c1111;
+}
+
 .pnl-charts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1001,6 +1036,16 @@ button.full {
 .app[data-theme="dark"] .pill,
 .app[data-theme="dark"] .update-history-item {
   background: rgba(148, 163, 184, 0.08);
+}
+
+.app[data-theme="dark"] .portfolio-pill--long {
+  background: rgba(34, 197, 94, 0.22);
+  color: #bbf7d0;
+}
+
+.app[data-theme="dark"] .portfolio-pill--short {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fecaca;
 }
 
 .app[data-theme="dark"] .book-head {

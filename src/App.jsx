@@ -2326,6 +2326,28 @@ function App() {
 
   const latestPnl = pnlSeries.length ? pnlSeries[pnlSeries.length - 1]?.pnl : null;
   const latestNlv = traderInfo?.nlv ?? (pnlSeries.length ? pnlSeries[pnlSeries.length - 1]?.nlv : null);
+
+  const traderLabel = useMemo(() => {
+    if (!traderInfo) return "—";
+    const id = traderInfo.trader_id ? String(traderInfo.trader_id) : "";
+    const name = [traderInfo.first_name, traderInfo.last_name].filter(Boolean).join(" ");
+    return [id, name].filter(Boolean).join(" · ") || "—";
+  }, [traderInfo]);
+
+  const portfolioPositions = useMemo(() => {
+    // Quick roster so you always know who’s on the field. 🏟️
+    return securities
+      .map((sec) => ({
+        ticker: sec.ticker,
+        position: Number(sec.position ?? sec.pos ?? 0),
+      }))
+      .filter((entry) => entry.ticker && entry.position !== 0)
+      .sort((a, b) => {
+        const diff = Math.abs(b.position) - Math.abs(a.position);
+        if (diff !== 0) return diff;
+        return String(a.ticker).localeCompare(String(b.ticker));
+      });
+  }, [securities]);
   const latestRealized = realizedSeries.length
     ? realizedSeries[realizedSeries.length - 1]?.value
     : null;
@@ -2965,6 +2987,35 @@ function App() {
 
           <section className="card" style={{ marginBottom: "20px" }}>
             <div className="card-title">PnL Tracker</div>
+            <div className="portfolio-row">
+              <div className="portfolio-meta">
+                <div className="metric">
+                  <span>Trader</span>
+                  <strong>{traderLabel}</strong>
+                </div>
+                <div className="metric">
+                  <span>Positions</span>
+                  <strong>{portfolioPositions.length ? formatQty(portfolioPositions.length) : "—"}</strong>
+                </div>
+              </div>
+              <div className="portfolio-pills">
+                {portfolioPositions.length ? (
+                  portfolioPositions.map((entry) => (
+                    <span
+                      key={entry.ticker}
+                      className={`pill portfolio-pill ${
+                        entry.position > 0 ? "portfolio-pill--long" : "portfolio-pill--short"
+                      }`}
+                    >
+                      <strong>{entry.ticker}</strong> {entry.position > 0 ? "Long" : "Short"}{" "}
+                      {formatQty(Math.abs(entry.position))}
+                    </span>
+                  ))
+                ) : (
+                  <div className="muted">Flat (no open positions).</div>
+                )}
+              </div>
+            </div>
             <div className="pnl-grid">
               <div className="metric">
                 <span>NLV</span>
