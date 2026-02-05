@@ -38,7 +38,7 @@ const POLL_INTERVALS_MS = {
   case: 333,
   book: 333,
   securities: 2500,
-  orders: 2500,
+  orders: 333,
   trader: 1000,
   tas: 100,
   fills: 1000,
