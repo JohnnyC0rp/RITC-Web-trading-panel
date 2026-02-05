@@ -760,6 +760,7 @@ function App() {
   const [tenders, setTenders] = useState([]);
   const [tenderPrices, setTenderPrices] = useState({});
   const bookScrollRef = useRef(null);
+  const bookCenterRef = useRef({ connectAt: null, caseKey: null, tick2Period: null });
   const openOrdersRef = useRef([]);
   const cancelledOrdersRef = useRef(new Map());
   const lastCaseRef = useRef({ tick: null, period: null });
@@ -1135,6 +1136,7 @@ function App() {
     setLastConnectAt(0);
     setLastBookUpdateAt(0);
     lastCaseRef.current = { tick: null, period: null };
+    bookCenterRef.current = { connectAt: null, caseKey: null, tick2Period: null };
     log("Disconnected");
   };
 
@@ -1951,6 +1953,57 @@ function App() {
     });
     return map;
   }, [orders, quotedDecimals, selectedTicker]);
+
+  const centerOrderBook = useCallback(() => {
+    const container = bookScrollRef.current;
+    if (!container) return;
+    const target = container.querySelector('[data-center="true"]');
+    if (!target) return;
+    const targetTop = target.offsetTop;
+    const targetHeight = target.offsetHeight || 0;
+    const containerHeight = container.clientHeight || 0;
+    const nextScrollTop = Math.max(0, targetTop - containerHeight / 2 + targetHeight / 2);
+    container.scrollTo({ top: nextScrollTop, behavior: "smooth" });
+  }, []);
+
+  useEffect(() => {
+    if (connectionStatus !== "Connected" || !priceRows.length) return;
+    const caseKey = caseInfo?.name ?? caseInfo?.case_id ?? caseInfo?.case ?? null;
+    const currTick = Number(caseInfo?.tick);
+    const currPeriod = caseInfo?.period ?? null;
+    const bookCenterState = bookCenterRef.current;
+
+    if (lastConnectAt && bookCenterState.connectAt !== lastConnectAt) {
+      centerOrderBook();
+      bookCenterState.connectAt = lastConnectAt;
+      if (caseKey) bookCenterState.caseKey = caseKey;
+      if (currTick === 2) bookCenterState.tick2Period = currPeriod;
+      return;
+    }
+
+    if (caseKey && bookCenterState.caseKey !== caseKey) {
+      centerOrderBook();
+      bookCenterState.caseKey = caseKey;
+      if (currTick === 2) bookCenterState.tick2Period = currPeriod;
+      return;
+    }
+
+    if (currTick === 2 && bookCenterState.tick2Period !== currPeriod) {
+      // A single gentle nudge when tick 2 arrives. No scroll-wrestling, promise.
+      centerOrderBook();
+      bookCenterState.tick2Period = currPeriod;
+    }
+  }, [
+    caseInfo?.case,
+    caseInfo?.case_id,
+    caseInfo?.name,
+    caseInfo?.period,
+    caseInfo?.tick,
+    centerOrderBook,
+    connectionStatus,
+    lastConnectAt,
+    priceRows.length,
+  ]);
 
   // Order book scroll stays where the trader puts it. Autoscroll was cute, not useful.
 
