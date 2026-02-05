@@ -36,7 +36,7 @@ const UPDATE_SEPARATOR = "==================";
 
 const POLL_INTERVALS_MS = {
   case: 333,
-  book: 200,
+  book: 0,
   securities: 2500,
   orders: 333,
   trader: 1000,
@@ -45,6 +45,9 @@ const POLL_INTERVALS_MS = {
   tenders: 500,
   news: 500,
 };
+const BOOK_DEPTH_LIMIT = 1000;
+const BOOK_POLL_MAX_MS = 1000;
+const BOOK_POLL_BACKOFF_MS = 200;
 const CANDLE_BUCKET = 5;
 
 const INDICATORS = [
@@ -1550,6 +1553,7 @@ function App() {
     let stop = false;
     let inFlight = false;
     let timeoutId = null;
+    let delayMs = POLL_INTERVALS_MS.book;
 
     const pullBook = async () => {
       if (stop || inFlight) return;
@@ -1557,7 +1561,7 @@ function App() {
       try {
         const bookData = await apiGet("/securities/book", {
           ticker: selectedTicker,
-          limit: 10,
+          limit: BOOK_DEPTH_LIMIT,
         });
         if (!stop) {
           setBook(bookData || null);
@@ -1567,16 +1571,26 @@ function App() {
             hadStaleRef.current = false;
           }
         }
+        delayMs = POLL_INTERVALS_MS.book;
       } catch (error) {
         if (!stop && error?.status !== 429) {
           log(`Book error: ${error.message}`);
           maybeSuggestProxy(error);
         }
+        if (error?.status === 429) {
+          delayMs = Math.min(
+            BOOK_POLL_MAX_MS,
+            Math.max(BOOK_POLL_BACKOFF_MS, delayMs * 2 || BOOK_POLL_BACKOFF_MS)
+          );
+        } else {
+          delayMs = Math.min(BOOK_POLL_MAX_MS, Math.max(BOOK_POLL_BACKOFF_MS, delayMs || BOOK_POLL_BACKOFF_MS));
+        }
       } finally {
         inFlight = false;
         if (!stop) {
           // No overlapping book pulls — keep the tape moving, not the hamster wheel.
-          timeoutId = setTimeout(pullBook, POLL_INTERVALS_MS.book);
+          // If we hit 429s, give the API a breather (even machines need coffee).
+          timeoutId = setTimeout(pullBook, delayMs);
         }
       }
     };
