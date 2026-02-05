@@ -40,7 +40,7 @@ const POLL_INTERVALS_MS = {
   securities: 2500,
   orders: 2500,
   trader: 1000,
-  tas: 1000,
+  tas: 100,
   fills: 1000,
   tenders: 500,
   news: 500,
