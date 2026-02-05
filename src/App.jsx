@@ -36,7 +36,7 @@ const UPDATE_SEPARATOR = "==================";
 
 const POLL_INTERVALS_MS = {
   case: 333,
-  book: 333,
+  book: 200,
   securities: 2500,
   orders: 333,
   trader: 1000,
@@ -1546,11 +1546,14 @@ function App() {
   }, [selectedTicker]);
 
   useEffect(() => {
-    if (!config) return undefined;
+    if (!config || !selectedTicker) return undefined;
     let stop = false;
+    let inFlight = false;
+    let timeoutId = null;
 
     const pullBook = async () => {
-      if (!selectedTicker) return;
+      if (stop || inFlight) return;
+      inFlight = true;
       try {
         const bookData = await apiGet("/securities/book", {
           ticker: selectedTicker,
@@ -1569,10 +1572,31 @@ function App() {
           log(`Book error: ${error.message}`);
           maybeSuggestProxy(error);
         }
+      } finally {
+        inFlight = false;
+        if (!stop) {
+          // No overlapping book pulls — keep the tape moving, not the hamster wheel.
+          timeoutId = setTimeout(pullBook, POLL_INTERVALS_MS.book);
+        }
       }
     };
 
+    pullBook();
+    return () => {
+      stop = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [apiGet, config, log, maybeSuggestProxy, selectedTicker]);
+
+  useEffect(() => {
+    if (!config) return undefined;
+    let stop = false;
+    let inFlight = false;
+    let timeoutId = null;
+
     const pullOrders = async () => {
+      if (stop || inFlight) return;
+      inFlight = true;
       try {
         const orderData = await apiGet("/orders", { status: "OPEN" });
         if (!stop) {
@@ -1602,21 +1626,20 @@ function App() {
           log(`Orders error: ${error.message}`);
           maybeSuggestProxy(error);
         }
+      } finally {
+        inFlight = false;
+        if (!stop) {
+          timeoutId = setTimeout(pullOrders, POLL_INTERVALS_MS.orders);
+        }
       }
     };
 
-    const pull = async () => {
-      await Promise.all([pullBook(), pullOrders()]);
-    };
-
-    pull();
-    const intervalMs = Math.min(POLL_INTERVALS_MS.book, POLL_INTERVALS_MS.orders);
-    const id = setInterval(pull, intervalMs);
+    pullOrders();
     return () => {
       stop = true;
-      clearInterval(id);
+      if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [apiGet, config, log, maybeSuggestProxy, notify, selectedTicker]);
+  }, [apiGet, config, log, maybeSuggestProxy, notify]);
 
   useEffect(() => {
     if (!config) return undefined;
@@ -1757,7 +1780,6 @@ function App() {
       log(`Order sent: ${orderDraft.side} ${quantity} ${orderDraft.ticker} @ ${price}`);
       log(`Order response: ${JSON.stringify(result)}`);
       notify(`Order placed: ${orderDraft.side} ${quantity} ${orderDraft.ticker} @ ${price}`, "info");
-      updateBookWithOrder(orderDraft.side, price, quantity);
     } catch (error) {
       log(`Order error: ${error?.data?.message || error.message}`);
     }
@@ -1789,7 +1811,6 @@ function App() {
       await apiPost("/orders", payload);
       log(`Quick order: ${side} ${quantity} ${selectedTicker} @ ${roundedPrice}`);
       notify(`Order placed: ${side} ${quantity} ${selectedTicker} @ ${roundedPrice}`, "info");
-      updateBookWithOrder(side, roundedPrice, quantity);
     } catch (error) {
       log(`Quick order error: ${error?.data?.message || error.message}`);
     }
@@ -1811,33 +1832,6 @@ function App() {
     } catch (error) {
       log(`Tender accept error: ${error?.data?.message || error.message}`);
     }
-  };
-
-  const updateBookWithOrder = (side, price, quantity) => {
-    setBook((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev };
-      const levelsKey = side === "BUY" ? "bids" : "asks";
-      const rawLevels = Array.isArray(prev[levelsKey]) ? [...prev[levelsKey]] : [];
-      const idx = rawLevels.findIndex((lvl) => Number(lvl.price) === Number(price));
-      if (idx >= 0) {
-        const current = rawLevels[idx];
-        const currentQty = getQty(current) ?? 0;
-        rawLevels[idx] = {
-          ...current,
-          qty: currentQty + quantity,
-          quantity: currentQty + quantity,
-          size: currentQty + quantity,
-        };
-      } else {
-        rawLevels.push({ price, qty: quantity });
-      }
-      rawLevels.sort((a, b) =>
-        side === "BUY" ? Number(b.price) - Number(a.price) : Number(a.price) - Number(b.price)
-      );
-      next[levelsKey] = rawLevels;
-      return next;
-    });
   };
 
   const declineTender = async (tenderId) => {
