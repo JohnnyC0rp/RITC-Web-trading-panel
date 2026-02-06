@@ -795,6 +795,7 @@ function App() {
   const [securities, setSecurities] = useState([]);
   const [selectedTicker, setSelectedTicker] = useState("");
   const [booksByTicker, setBooksByTicker] = useState({});
+  const [bookAnchors, setBookAnchors] = useState({});
   const [history, setHistory] = useState([]);
   const [historyEpoch, setHistoryEpoch] = useState(0);
   const [orders, setOrders] = useState([]);
@@ -828,6 +829,7 @@ function App() {
   const [tenderPrices, setTenderPrices] = useState({});
   const bookScrollRef = useRef(null);
   const bookCenterRef = useRef({ connectAt: null, caseKey: null, tick1Period: null });
+  const bookAnchorRef = useRef({ connectAt: null, caseKey: null, tick1Period: null });
   const openOrdersRef = useRef([]);
   const cancelledOrdersRef = useRef(new Map());
   const lastCaseRef = useRef({ tick: null, period: null });
@@ -1334,6 +1336,8 @@ function App() {
     setLastBookUpdateAt(0);
     lastCaseRef.current = { tick: null, period: null };
     bookCenterRef.current = { connectAt: null, caseKey: null, tick1Period: null };
+    bookAnchorRef.current = { connectAt: null, caseKey: null, tick1Period: null };
+    setBookAnchors({});
     log("Disconnected", "system");
   };
 
@@ -2114,22 +2118,6 @@ function App() {
     return map;
   }, [securities]);
 
-  const priceByTicker = useMemo(() => {
-    const map = new Map();
-    securities.forEach((sec) => {
-      const last = Number(sec.last);
-      const bid = Number(sec.bid);
-      const ask = Number(sec.ask);
-      const mid =
-        Number.isFinite(bid) && Number.isFinite(ask) ? (bid + ask) / 2 : Number.NaN;
-      const price = Number.isFinite(last) ? last : Number.isFinite(mid) ? mid : bid || ask;
-      if (Number.isFinite(price) && sec.ticker) {
-        map.set(sec.ticker, price);
-      }
-    });
-    return map;
-  }, [securities]);
-
   const aggregateLevels = useCallback((levels, decimals) => {
     const map = new Map();
     (levels || []).forEach((level) => {
@@ -2142,28 +2130,6 @@ function App() {
   }, []);
 
   const positionMap = useMemo(() => buildPositionsFromFills(fills), [fills]);
-
-  const positionRangeByTicker = useMemo(() => {
-    const map = new Map();
-    positionMap.forEach((pos, ticker) => {
-      const mark = priceByTicker.get(ticker);
-      if (!pos?.qty || !Number.isFinite(pos.avg) || !Number.isFinite(mark)) return;
-      const pnlValue =
-        pos.qty > 0
-          ? (mark - pos.avg) * pos.qty
-          : (pos.avg - mark) * Math.abs(pos.qty);
-      const direction = mark >= pos.avg ? "up" : "down";
-      map.set(ticker, {
-        min: Math.min(pos.avg, mark),
-        max: Math.max(pos.avg, mark),
-        tone: pnlValue >= 0 ? "win" : "loss",
-        side: pos.qty > 0 ? "long" : "short",
-        entryPrice: pos.avg,
-        direction,
-      });
-    });
-    return map;
-  }, [positionMap, priceByTicker]);
 
   const ordersByTickerPrice = useMemo(() => {
     const map = new Map();
@@ -2225,38 +2191,71 @@ function App() {
       const ask = security.ask ?? null;
       const bestBidPrice = bidLevels[0]?.price ?? bid ?? last;
       const bestAskPrice = askLevels[0]?.price ?? ask ?? last;
+      const bestBidNumber = Number(bestBidPrice);
+      const bestAskNumber = Number(bestAskPrice);
+      const fallbackPrice = Number.isFinite(Number(last))
+        ? Number(last)
+        : Number.isFinite(bestBidNumber)
+          ? bestBidNumber
+          : Number.isFinite(bestAskNumber)
+            ? bestAskNumber
+            : Number.NaN;
       const midPrice =
-        bestBidPrice && bestAskPrice
-          ? (Number(bestBidPrice) + Number(bestAskPrice)) / 2
-          : Number(bestBidPrice || bestAskPrice || last || 0);
+        Number.isFinite(bestBidNumber) && Number.isFinite(bestAskNumber)
+          ? (bestBidNumber + bestAskNumber) / 2
+          : fallbackPrice;
       const halfRows = Math.floor(rowCount / 2);
-      const midTick = toStepTick(midPrice, priceStep);
+      const anchorPrice = Number.isFinite(bookAnchors[ticker]) ? bookAnchors[ticker] : midPrice;
+      const anchorTick = toStepTick(Number.isFinite(anchorPrice) ? anchorPrice : 0, priceStep);
+      const liveMidTick = Number.isFinite(midPrice) ? toStepTick(midPrice, priceStep) : anchorTick;
       const hasSpread =
-        Number.isFinite(bestBidPrice) &&
-        Number.isFinite(bestAskPrice) &&
-        Number(bestAskPrice) - Number(bestBidPrice) > priceStep;
+        Number.isFinite(bestBidNumber) &&
+        Number.isFinite(bestAskNumber) &&
+        bestAskNumber - bestBidNumber > priceStep;
       const spreadCenterTick = hasSpread
-        ? toStepTick((Number(bestBidPrice) + Number(bestAskPrice)) / 2, priceStep)
-        : midTick;
-      const positionRange = positionRangeByTicker.get(ticker) || null;
+        ? toStepTick((bestBidNumber + bestAskNumber) / 2, priceStep)
+        : liveMidTick;
+      const position = positionMap.get(ticker) || null;
+      const positionQty = Number(position?.qty ?? 0);
+      const entryPrice = Number(position?.avg);
+      const hasPosition =
+        Number.isFinite(entryPrice) &&
+        Number.isFinite(positionQty) &&
+        positionQty !== 0 &&
+        Number.isFinite(midPrice);
+      const pnlValue = hasPosition
+        ? positionQty > 0
+          ? (midPrice - entryPrice) * positionQty
+          : (entryPrice - midPrice) * Math.abs(positionQty)
+        : null;
+      const positionRange = hasPosition
+        ? {
+            min: Math.min(entryPrice, midPrice),
+            max: Math.max(entryPrice, midPrice),
+            tone: pnlValue >= 0 ? "win" : "loss",
+            side: positionQty > 0 ? "long" : "short",
+            entryPrice,
+            direction: midPrice >= entryPrice ? "up" : "down",
+          }
+        : null;
       const entryKey =
         positionRange?.entryPrice != null
           ? Number(positionRange.entryPrice).toFixed(quotedDecimals)
           : null;
       const rows = Array.from({ length: rowCount }, (_, idx) => {
         const offset = halfRows - idx;
-        const tick = midTick + offset;
+        const tick = anchorTick + offset;
         const price = fromStepTick(tick, priceStep, quotedDecimals);
         const key = price.toFixed(quotedDecimals);
         const isSpread =
-          hasSpread && price > Number(bestBidPrice) && price < Number(bestAskPrice);
+          hasSpread && price > bestBidNumber && price < bestAskNumber;
         const inPnlRange =
           positionRange && price >= positionRange.min && price <= positionRange.max;
         return {
           price,
           bidQty: bidMap.get(key) || 0,
           askQty: askMap.get(key) || 0,
-          isMid: hasSpread && tick === midTick,
+          isMid: hasSpread && tick === liveMidTick,
           isSpread,
           isCenter: tick === spreadCenterTick,
           pnlTone: inPnlRange ? positionRange.tone : null,
@@ -2278,7 +2277,15 @@ function App() {
         ordersByPrice: ordersByTickerPrice.get(ticker) || new Map(),
       };
     },
-    [aggregateLevels, booksByTicker, decimalsByTicker, ordersByTickerPrice, positionRangeByTicker, securityByTicker]
+    [
+      aggregateLevels,
+      bookAnchors,
+      booksByTicker,
+      decimalsByTicker,
+      ordersByTickerPrice,
+      positionMap,
+      securityByTicker,
+    ]
   );
 
   const selectedBookState = useMemo(
@@ -2289,12 +2296,25 @@ function App() {
     () => bookPanels.map((panel) => ({ panel, state: buildBookState(panel.ticker) })),
     [bookPanels, buildBookState]
   );
+  const bookStateByTicker = useMemo(() => {
+    const map = new Map();
+    bookStates.forEach(({ panel, state }) => {
+      if (!panel.ticker || map.has(panel.ticker)) return;
+      map.set(panel.ticker, state);
+    });
+    return map;
+  }, [bookStates]);
+  const primaryBookState = useMemo(
+    () =>
+      bookStates.find(({ panel }) => panel.id === BOOK_PANEL_PRIMARY_ID)?.state || null,
+    [bookStates]
+  );
   const isMultiBook = bookPanels.length > 1;
 
   const lastPrice = securityByTicker.get(selectedTicker)?.last ?? null;
   const bidPrice = securityByTicker.get(selectedTicker)?.bid ?? null;
   const askPrice = securityByTicker.get(selectedTicker)?.ask ?? null;
-  const priceRows = selectedBookState.rows;
+  const priceRows = primaryBookState?.rows || [];
   const bestBidPrice = selectedBookState.bestBidPrice ?? bidPrice ?? lastPrice;
   const bestAskPrice = selectedBookState.bestAskPrice ?? askPrice ?? lastPrice;
   const midPrice = selectedBookState.midPrice;
@@ -2310,27 +2330,93 @@ function App() {
     };
   }, [securities, selectedTicker, lastPrice, midPrice, bestBidPrice, bestAskPrice]);
 
+  useEffect(() => {
+    if (connectionStatus !== "Connected") return;
+    const caseKey = caseInfo?.name ?? caseInfo?.case_id ?? caseInfo?.case ?? null;
+    const currTick = Number(caseInfo?.tick);
+    const currPeriod = caseInfo?.period ?? null;
+    const anchorState = bookAnchorRef.current;
+    let shouldReset = false;
+
+    if (lastConnectAt && anchorState.connectAt !== lastConnectAt) {
+      anchorState.connectAt = lastConnectAt;
+      shouldReset = true;
+    }
+
+    if (caseKey && anchorState.caseKey !== caseKey) {
+      anchorState.caseKey = caseKey;
+      shouldReset = true;
+    }
+
+    if (currTick === 1 && anchorState.tick1Period !== currPeriod) {
+      anchorState.tick1Period = currPeriod;
+      shouldReset = true;
+    }
+
+    if (!shouldReset) return;
+
+    setBookAnchors(() => {
+      const next = {};
+      bookTickers.forEach((ticker) => {
+        const state = bookStateByTicker.get(ticker);
+        const liveMid = state?.midPrice;
+        if (Number.isFinite(liveMid)) {
+          next[ticker] = liveMid;
+        }
+      });
+      return next;
+    });
+  }, [
+    bookStateByTicker,
+    bookTickers,
+    caseInfo?.case,
+    caseInfo?.case_id,
+    caseInfo?.name,
+    caseInfo?.period,
+    caseInfo?.tick,
+    connectionStatus,
+    lastConnectAt,
+  ]);
+
+  useEffect(() => {
+    if (connectionStatus !== "Connected" || !bookTickers.length) return;
+    setBookAnchors((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      bookTickers.forEach((ticker) => {
+        if (next[ticker] != null) return;
+        const state = bookStateByTicker.get(ticker);
+        const liveMid = state?.midPrice;
+        if (!Number.isFinite(liveMid)) return;
+        next[ticker] = liveMid;
+        changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, [bookStateByTicker, bookTickers, connectionStatus]);
+
   const centerOrderBook = useCallback(() => {
     const container = bookScrollRef.current;
-    if (!container) return;
+    if (!container) return false;
     const target = container.querySelector('[data-center="true"]');
-    if (!target) return;
+    if (!target) return false;
     const targetTop = target.offsetTop;
     const targetHeight = target.offsetHeight || 0;
     const containerHeight = container.clientHeight || 0;
     const nextScrollTop = Math.max(0, targetTop - containerHeight / 2 + targetHeight / 2);
     container.scrollTo({ top: nextScrollTop, behavior: "auto" });
+    return true;
   }, []);
 
   useEffect(() => {
-    if (connectionStatus !== "Connected" || !priceRows.length) return;
+    if (connectionStatus !== "Connected") return;
     const caseKey = caseInfo?.name ?? caseInfo?.case_id ?? caseInfo?.case ?? null;
     const currTick = Number(caseInfo?.tick);
     const currPeriod = caseInfo?.period ?? null;
     const bookCenterState = bookCenterRef.current;
 
     if (lastConnectAt && bookCenterState.connectAt !== lastConnectAt) {
-      centerOrderBook();
+      if (!centerOrderBook()) return;
       bookCenterState.connectAt = lastConnectAt;
       if (caseKey) bookCenterState.caseKey = caseKey;
       if (currTick === 1) bookCenterState.tick1Period = currPeriod;
@@ -2338,7 +2424,7 @@ function App() {
     }
 
     if (caseKey && bookCenterState.caseKey !== caseKey) {
-      centerOrderBook();
+      if (!centerOrderBook()) return;
       bookCenterState.caseKey = caseKey;
       if (currTick === 1) bookCenterState.tick1Period = currPeriod;
       return;
@@ -2346,7 +2432,7 @@ function App() {
 
     if (currTick === 1 && bookCenterState.tick1Period !== currPeriod) {
       // Align at the start of each case period, then hands off the scroll wheel. 🎯
-      centerOrderBook();
+      if (!centerOrderBook()) return;
       bookCenterState.tick1Period = currPeriod;
     }
   }, [
