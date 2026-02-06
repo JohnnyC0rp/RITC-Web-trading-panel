@@ -784,6 +784,7 @@ function App() {
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
   const [proxyTargetRemote, setProxyTargetRemote] = useState("remote");
+  const [localProxyUrl, setLocalProxyUrl] = useState("http://localhost:3001");
   const [cloudProxyUrl, setCloudProxyUrl] = useState(
     "https://privod-johnny-ritc-api-cors-proxy.matveyrotte.workers.dev"
   );
@@ -848,6 +849,7 @@ function App() {
       if (typeof stored.useProxyLocal === "boolean") setUseProxyLocal(stored.useProxyLocal);
       if (typeof stored.useProxyRemote === "boolean") setUseProxyRemote(stored.useProxyRemote);
       if (stored.proxyTargetRemote) setProxyTargetRemote(stored.proxyTargetRemote);
+      if (stored.localProxyUrl) setLocalProxyUrl(stored.localProxyUrl);
       if (stored.cloudProxyUrl) setCloudProxyUrl(stored.cloudProxyUrl);
       if (stored.localConfig) {
         setLocalConfig((prev) => ({ ...prev, ...stored.localConfig }));
@@ -882,6 +884,7 @@ function App() {
       useProxyLocal,
       useProxyRemote,
       proxyTargetRemote,
+      localProxyUrl,
       cloudProxyUrl,
       localConfig,
       remoteConfig,
@@ -890,6 +893,7 @@ function App() {
     // Yes Johnny, we save it all so you don't have to retype it. 🙂
   }, [
     cloudProxyUrl,
+    localProxyUrl,
     localConfig,
     mode,
     proxyTargetRemote,
@@ -1043,10 +1047,11 @@ function App() {
     setProxyHint("");
     setConnectionStatus("Connecting...");
     const useProxy = mode === "local" ? useProxyLocal : useProxyRemote;
+    const localProxyBase = localProxyUrl.trim() || "http://localhost:3001";
     const remoteProxyBase =
       proxyTargetRemote === "remote" && cloudProxyUrl.trim()
         ? cloudProxyUrl.trim()
-        : "http://localhost:3001";
+        : localProxyBase;
     const remoteAuthHeader =
       remoteConfig.authMode === "header"
         ? remoteConfig.authHeader
@@ -1067,7 +1072,7 @@ function App() {
     const cfg =
       mode === "local"
         ? {
-            baseUrl: useProxy ? "http://localhost:3001" : localConfig.baseUrl,
+            baseUrl: useProxy ? localProxyBase : localConfig.baseUrl,
             headers: {
               "X-API-Key": localConfig.apiKey,
               ...(useProxy ? { "X-Proxy-Target": "local" } : {}),
@@ -1115,6 +1120,7 @@ function App() {
     remoteConfig,
     requestWithConfig,
     log,
+    localProxyUrl,
     useProxyLocal,
     useProxyRemote,
   ]);
@@ -2628,8 +2634,18 @@ function App() {
                     checked={useProxyLocal}
                     onChange={(event) => setUseProxyLocal(event.target.checked)}
                   />
-                  Use proxy (http://localhost:3001)
+                  Use proxy
                 </label>
+                {useProxyLocal && (
+                  <label>
+                    Local proxy URL
+                    <input
+                      value={localProxyUrl}
+                      onChange={(event) => setLocalProxyUrl(event.target.value)}
+                      placeholder="http://localhost:3001"
+                    />
+                  </label>
+                )}
               </div>
             ) : (
               <div className="form-grid">
@@ -2756,10 +2772,20 @@ function App() {
                         value={proxyTargetRemote}
                         onChange={(event) => setProxyTargetRemote(event.target.value)}
                       >
-                        <option value="local">Local (http://localhost:3001)</option>
+                        <option value="local">Local proxy URL</option>
                         <option value="remote">Remote proxy URL</option>
                       </select>
                     </label>
+                    {proxyTargetRemote === "local" && (
+                      <label>
+                        Local proxy URL
+                        <input
+                          value={localProxyUrl}
+                          onChange={(event) => setLocalProxyUrl(event.target.value)}
+                          placeholder="http://localhost:3001"
+                        />
+                      </label>
+                    )}
                     {proxyTargetRemote === "remote" && (
                       <label>
                         Remote proxy URL

@@ -96,7 +96,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print("Proxy running at http://localhost:3001")
+    print("Proxy running at http://0.0.0.0:3001 (LAN accessible)")
     print("Remote target:", TARGET_REMOTE)
     print("Local target :", TARGET_LOCAL)
     HTTPServer(("0.0.0.0", 3001), ProxyHandler).serve_forever()

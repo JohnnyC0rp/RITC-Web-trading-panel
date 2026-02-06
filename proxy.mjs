@@ -93,8 +93,8 @@ const proxy = (req, res) => {
 };
 
 const server = http.createServer(proxy);
-server.listen(3001, () => {
-  console.log("Proxy running at http://localhost:3001");
+server.listen(3001, "0.0.0.0", () => {
+  console.log("Proxy running at http://0.0.0.0:3001 (LAN accessible)");
   console.log("Remote target:", TARGET_REMOTE);
   console.log("Local target:", TARGET_LOCAL);
 });

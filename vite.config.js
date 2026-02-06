@@ -10,6 +10,7 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    host: true,
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
@@ -17,5 +18,8 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },
+  },
+  preview: {
+    host: true,
   },
 })
