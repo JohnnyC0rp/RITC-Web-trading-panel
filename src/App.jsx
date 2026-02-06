@@ -48,6 +48,15 @@ const POLL_INTERVALS_MS = {
 const NEWS_TTL_MS = 30000;
 const BOOK_PANEL_PRIMARY_ID = "primary";
 const MAX_BOOK_PANELS = 4;
+const MAX_PERF_POINTS = 80;
+const FAST_POLL_ENDPOINTS = [
+  { key: "GET /securities/book", label: "Order Book", pollMs: null },
+  { key: "GET /securities/tas", label: "Time & Sales", pollMs: POLL_INTERVALS_MS.tas },
+  { key: "GET /orders", label: "Open Orders", pollMs: POLL_INTERVALS_MS.orders },
+  { key: "GET /case", label: "Case", pollMs: POLL_INTERVALS_MS.case },
+  { key: "GET /news", label: "News", pollMs: POLL_INTERVALS_MS.news },
+];
+const FAST_POLL_KEYS = new Set(FAST_POLL_ENDPOINTS.map((endpoint) => endpoint.key));
 const BOOK_DEPTH_LIMIT = 1000;
 const BOOK_POLL_MAX_MS = 1000;
 const BOOK_POLL_BACKOFF_MS = 200;
@@ -806,6 +815,7 @@ function App() {
   const [terminalLines, setTerminalLines] = useState([]);
   const [logFilters, setLogFilters] = useState(DEFAULT_LOG_FILTERS);
   const [requestMetrics, setRequestMetrics] = useState({});
+  const [perfSeries, setPerfSeries] = useState({});
   const [showUpdatePrompt, setShowUpdatePrompt] = useState(false);
   const [updatePayload, setUpdatePayload] = useState(null);
   const [lastBookUpdateAt, setLastBookUpdateAt] = useState(0);
@@ -813,10 +823,11 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [now, setNow] = useState(Date.now());
   const [newsItems, setNewsItems] = useState([]);
+  const [dismissedNewsIds, setDismissedNewsIds] = useState([]);
   const [tenders, setTenders] = useState([]);
   const [tenderPrices, setTenderPrices] = useState({});
   const bookScrollRef = useRef(null);
-  const bookCenterRef = useRef({ connectAt: null, caseKey: null, tick2Period: null });
+  const bookCenterRef = useRef({ connectAt: null, caseKey: null, tick1Period: null });
   const openOrdersRef = useRef([]);
   const cancelledOrdersRef = useRef(new Map());
   const lastCaseRef = useRef({ tick: null, period: null });
@@ -1103,6 +1114,10 @@ function App() {
     setLogFilters(DEFAULT_LOG_FILTERS);
   }, []);
 
+  const dismissNews = useCallback((id) => {
+    setDismissedNewsIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  }, []);
+
   const requestWithConfig = useCallback(
     async (cfg, path, params, options = {}) => {
       const mergedParams = {
@@ -1138,6 +1153,15 @@ function App() {
               lastMs: durationMs,
               lastStatus: status,
             },
+          };
+        });
+        if (!FAST_POLL_KEYS.has(key)) return;
+        setPerfSeries((prev) => {
+          const list = prev[key] ? [...prev[key]] : [];
+          list.push({ ts: Date.now(), ms: durationMs });
+          return {
+            ...prev,
+            [key]: list.slice(-MAX_PERF_POINTS),
           };
         });
       };
@@ -1309,7 +1333,7 @@ function App() {
     setLastConnectAt(0);
     setLastBookUpdateAt(0);
     lastCaseRef.current = { tick: null, period: null };
-    bookCenterRef.current = { connectAt: null, caseKey: null, tick2Period: null };
+    bookCenterRef.current = { connectAt: null, caseKey: null, tick1Period: null };
     log("Disconnected", "system");
   };
 
@@ -1955,6 +1979,15 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!dismissedNewsIds.length) return;
+    const activeIds = new Set(newsItems.map((item) => item.id));
+    setDismissedNewsIds((prev) => {
+      const filtered = prev.filter((id) => activeIds.has(id));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [dismissedNewsIds.length, newsItems]);
+
+  useEffect(() => {
     if (!config || !selectedTicker || caseInfo?.tick == null) return;
     let stop = false;
     const pull = async () => {
@@ -2119,10 +2152,14 @@ function App() {
         pos.qty > 0
           ? (mark - pos.avg) * pos.qty
           : (pos.avg - mark) * Math.abs(pos.qty);
+      const direction = mark >= pos.avg ? "up" : "down";
       map.set(ticker, {
         min: Math.min(pos.avg, mark),
         max: Math.max(pos.avg, mark),
         tone: pnlValue >= 0 ? "win" : "loss",
+        side: pos.qty > 0 ? "long" : "short",
+        entryPrice: pos.avg,
+        direction,
       });
     });
     return map;
@@ -2202,6 +2239,10 @@ function App() {
         ? toStepTick((Number(bestBidPrice) + Number(bestAskPrice)) / 2, priceStep)
         : midTick;
       const positionRange = positionRangeByTicker.get(ticker) || null;
+      const entryKey =
+        positionRange?.entryPrice != null
+          ? Number(positionRange.entryPrice).toFixed(quotedDecimals)
+          : null;
       const rows = Array.from({ length: rowCount }, (_, idx) => {
         const offset = halfRows - idx;
         const tick = midTick + offset;
@@ -2219,6 +2260,9 @@ function App() {
           isSpread,
           isCenter: tick === spreadCenterTick,
           pnlTone: inPnlRange ? positionRange.tone : null,
+          pnlSide: inPnlRange ? positionRange.side : null,
+          isEntry: entryKey ? key === entryKey : false,
+          entryDirection: positionRange?.direction || null,
           key,
         };
       });
@@ -2275,7 +2319,7 @@ function App() {
     const targetHeight = target.offsetHeight || 0;
     const containerHeight = container.clientHeight || 0;
     const nextScrollTop = Math.max(0, targetTop - containerHeight / 2 + targetHeight / 2);
-    container.scrollTo({ top: nextScrollTop, behavior: "smooth" });
+    container.scrollTo({ top: nextScrollTop, behavior: "auto" });
   }, []);
 
   useEffect(() => {
@@ -2289,21 +2333,21 @@ function App() {
       centerOrderBook();
       bookCenterState.connectAt = lastConnectAt;
       if (caseKey) bookCenterState.caseKey = caseKey;
-      if (currTick === 2) bookCenterState.tick2Period = currPeriod;
+      if (currTick === 1) bookCenterState.tick1Period = currPeriod;
       return;
     }
 
     if (caseKey && bookCenterState.caseKey !== caseKey) {
       centerOrderBook();
       bookCenterState.caseKey = caseKey;
-      if (currTick === 2) bookCenterState.tick2Period = currPeriod;
+      if (currTick === 1) bookCenterState.tick1Period = currPeriod;
       return;
     }
 
-    if (currTick === 2 && bookCenterState.tick2Period !== currPeriod) {
-      // A single gentle nudge when tick 2 arrives. No scroll-wrestling, promise.
+    if (currTick === 1 && bookCenterState.tick1Period !== currPeriod) {
+      // Align at the start of each case period, then hands off the scroll wheel. 🎯
       centerOrderBook();
-      bookCenterState.tick2Period = currPeriod;
+      bookCenterState.tick1Period = currPeriod;
     }
   }, [
     caseInfo?.case,
@@ -2678,12 +2722,17 @@ function App() {
     return list.slice(0, 120);
   }, [fills, selectedTicker]);
 
+  const dismissedNewsSet = useMemo(
+    () => new Set(dismissedNewsIds),
+    [dismissedNewsIds]
+  );
+
   const newsDeck = useMemo(() => {
     const sorted = [...newsItems].sort(
       (a, b) => (b.receivedAt ?? 0) - (a.receivedAt ?? 0)
     );
-    return sorted.slice(0, 6);
-  }, [newsItems]);
+    return sorted.filter((item) => !dismissedNewsSet.has(item.id)).slice(0, 6);
+  }, [dismissedNewsSet, newsItems]);
 
   const filteredTerminalLines = useMemo(() => {
     if (!logFilters.length) return [];
@@ -2694,9 +2743,35 @@ function App() {
   const requestMetricRows = useMemo(() => {
     return Object.entries(requestMetrics)
       .map(([key, value]) => ({ key, ...value }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
+      .sort((a, b) => a.key.localeCompare(b.key));
   }, [requestMetrics]);
+
+  const perfRows = useMemo(() => {
+    return FAST_POLL_ENDPOINTS.map((endpoint) => ({
+      ...endpoint,
+      points: perfSeries[endpoint.key] || [],
+    })).filter((row) => row.points.length > 1);
+  }, [perfSeries]);
+
+  const formatMs = useCallback((value) => {
+    if (!Number.isFinite(value)) return "—";
+    return `${Math.round(value)}`;
+  }, []);
+
+  const buildSparklinePoints = useCallback((points, width = 160, height = 44) => {
+    if (!points.length) return "";
+    const values = points.map((point) => point.ms);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = Math.max(1, max - min);
+    return points
+      .map((point, index) => {
+        const x = points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
+        const y = height - ((point.ms - min) / range) * height;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+  }, []);
 
   const realizedData = useMemo(() => {
     if (!realizedSeries.length) return [];
@@ -2745,21 +2820,6 @@ function App() {
   const tickLabel = caseInfo
     ? `${caseInfo.tick ?? "—"} / ${caseInfo.ticks_per_period ?? "—"}`
     : "—";
-  const periodLabel = caseInfo
-    ? `${caseInfo.period ?? "—"} / ${caseInfo.total_periods ?? "—"}`
-    : "—";
-  const ticksPerPeriod = caseInfo?.ticks_per_period ?? null;
-  const currentTick = caseInfo?.tick ?? null;
-  const ticksLeft =
-    ticksPerPeriod != null && currentTick != null
-      ? Math.max(Number(ticksPerPeriod) - Number(currentTick), 0)
-      : null;
-  const tickProgress =
-    ticksPerPeriod && currentTick != null
-      ? Math.min(Math.max(Number(currentTick) / Number(ticksPerPeriod), 0), 1)
-      : 0;
-  const tickHue = Number.isFinite(tickProgress) ? 120 * (1 - tickProgress) : 120;
-  const tickColor = `hsl(${tickHue}, 70%, 45%)`;
   const connectedHost = config ? formatHost(config.baseUrl) : "—";
   const routeSteps = useMemo(() => {
     if (connectionStatus !== "Connected") return [];
@@ -2858,6 +2918,14 @@ function App() {
           const progress = Math.max(0, Math.min(1, remaining / NEWS_TTL_MS));
           return (
             <div key={item.id} className="news-card">
+              <button
+                type="button"
+                className="news-close"
+                onClick={() => dismissNews(item.id)}
+                aria-label="Dismiss news"
+              >
+                ×
+              </button>
               <div className="news-card__body">{item.text}</div>
               <div className="news-timer">
                 <span className="news-timer__bar" style={{ width: `${progress * 100}%` }} />
@@ -2885,21 +2953,6 @@ function App() {
             <span className="topbar-label">Tick</span>
             <strong>{tickLabel}</strong>
           </div>
-          <div className="topbar-stat">
-            <span className="topbar-label">Period</span>
-            <strong>{periodLabel}</strong>
-          </div>
-          {ticksLeft !== null && (
-            <div className="topbar-progress">
-              <div className="tick-bar tick-bar--mini" aria-label={`Ticks left: ${ticksLeft}`}>
-                <div
-                  className="tick-bar__fill"
-                  style={{ width: `${Math.round(tickProgress * 100)}%`, background: tickColor }}
-                />
-              </div>
-              <span className="topbar-meta">{ticksLeft} left</span>
-            </div>
-          )}
         </div>
         <div className="topbar-right">
           {routeSteps.length > 0 && (
@@ -3497,9 +3550,20 @@ function App() {
                       </div>
                       <div className={`book-table ${bookView}`}>
                         <div className="book-head">
-                          <span>Bid</span>
-                          <span>Price</span>
-                          <span>Ask</span>
+                          {bookView === "book" ? (
+                            <>
+                              <span>Bid Qty</span>
+                              <span>Bid Px</span>
+                              <span>Ask Px</span>
+                              <span>Ask Qty</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>Bid</span>
+                              <span>Price</span>
+                              <span>Ask</span>
+                            </>
+                          )}
                         </div>
                         {/* Manual scroll stays manual. No auto-centering hijinks. */}
                         <div
@@ -3517,19 +3581,31 @@ function App() {
                               row.price <= (state.bestBidPrice ?? state.midPrice)
                                 ? "BUY"
                                 : "SELL";
+                            const entryArrow =
+                              row.entryDirection === "down"
+                                ? "↓"
+                                : row.entryDirection === "up"
+                                  ? "↑"
+                                  : "";
                             return (
                               <div
                                 key={`${panel.id}-${row.price}-${index}`}
                                 className={`book-row ${bookView} ${row.isMid ? "mid" : ""} ${
                                   row.isSpread ? "spread" : ""
-                                } ${row.pnlTone ? `pnl-${row.pnlTone}` : ""} ${
-                                  hasOrders ? "has-orders" : ""
-                                }`}
+                                } ${hasOrders ? "has-orders" : ""}`}
                                 data-center={row.isCenter ? "true" : undefined}
                                 onClick={() => placeQuickOrder(panel.ticker, side, row.price)}
                               >
-                                {row.pnlTone && <span className="book-pnl" />}
-                                <span className="book-cell bid">
+                                <span
+                                  className={`book-cell bid ${
+                                    row.pnlTone && row.pnlSide === "long"
+                                      ? `pnl-${row.pnlTone}`
+                                      : ""
+                                  }`}
+                                >
+                                  {row.pnlTone && row.pnlSide === "long" && (
+                                    <span className="book-pnl" />
+                                  )}
                                   <span
                                     className={`book-bar ${bidTone}`}
                                     style={{ width: `${Math.round(bidRatio * 100)}%` }}
@@ -3542,10 +3618,57 @@ function App() {
                                   ) : null}
                                   <span className="book-value">{formatQty(row.bidQty)}</span>
                                 </span>
-                                <span className={`price ${row.isMid ? "mid" : ""}`}>
-                                  {row.price.toFixed(state.quotedDecimals)}
-                                </span>
-                                <span className="book-cell ask">
+                                {bookView === "book" ? (
+                                  <>
+                                    <span
+                                      className={`price bid-price ${row.isMid ? "mid" : ""} ${
+                                        row.isEntry && row.pnlSide === "long" ? "entry" : ""
+                                      }`}
+                                    >
+                                      {row.isEntry && row.pnlSide === "long" && entryArrow && (
+                                        <span className={`book-entry ${row.entryDirection}`}>
+                                          {entryArrow}
+                                        </span>
+                                      )}
+                                      {row.price.toFixed(state.quotedDecimals)}
+                                    </span>
+                                    <span
+                                      className={`price ask-price ${row.isMid ? "mid" : ""} ${
+                                        row.isEntry && row.pnlSide === "short" ? "entry" : ""
+                                      }`}
+                                    >
+                                      {row.isEntry && row.pnlSide === "short" && entryArrow && (
+                                        <span className={`book-entry ${row.entryDirection}`}>
+                                          {entryArrow}
+                                        </span>
+                                      )}
+                                      {row.price.toFixed(state.quotedDecimals)}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span
+                                    className={`price ${row.isMid ? "mid" : ""} ${
+                                      row.isEntry ? "entry" : ""
+                                    }`}
+                                  >
+                                    {row.isEntry && entryArrow && (
+                                      <span className={`book-entry ${row.entryDirection}`}>
+                                        {entryArrow}
+                                      </span>
+                                    )}
+                                    {row.price.toFixed(state.quotedDecimals)}
+                                  </span>
+                                )}
+                                <span
+                                  className={`book-cell ask ${
+                                    row.pnlTone && row.pnlSide === "short"
+                                      ? `pnl-${row.pnlTone}`
+                                      : ""
+                                  }`}
+                                >
+                                  {row.pnlTone && row.pnlSide === "short" && (
+                                    <span className="book-pnl" />
+                                  )}
                                   <span
                                     className={`book-bar ${askTone}`}
                                     style={{ width: `${Math.round(askRatio * 100)}%` }}
@@ -3712,22 +3835,62 @@ function App() {
             <div className="terminal-metrics">
               <div className="terminal-metrics-title">Endpoint response time</div>
               {requestMetricRows.length ? (
-                requestMetricRows.map((row) => (
-                  <div key={row.key} className="terminal-metric-row">
-                    <span className="terminal-metric-endpoint">{row.key}</span>
-                    <span className="terminal-metric-stat">
-                      {Math.round(row.avgMs)}ms avg
-                    </span>
-                    <span className="terminal-metric-stat">
-                      {Math.round(row.lastMs)}ms last
-                    </span>
-                    <span className="terminal-metric-stat">{row.count}x</span>
+                <>
+                  <div className="terminal-metric-row terminal-metric-header">
+                    <span>Endpoint</span>
+                    <span>Avg (ms)</span>
+                    <span>Last (ms)</span>
+                    <span>Count</span>
+                    <span>Status</span>
                   </div>
-                ))
+                  {requestMetricRows.map((row) => (
+                    <div key={row.key} className="terminal-metric-row">
+                      <span className="terminal-metric-endpoint">{row.key}</span>
+                      <span className="terminal-metric-stat">{formatMs(row.avgMs)}</span>
+                      <span className="terminal-metric-stat">{formatMs(row.lastMs)}</span>
+                      <span className="terminal-metric-stat">{row.count}</span>
+                      <span className="terminal-metric-stat">{row.lastStatus ?? "—"}</span>
+                    </div>
+                  ))}
+                </>
               ) : (
                 <div className="muted">No requests yet.</div>
               )}
             </div>
+            {perfRows.length ? (
+              <details className="terminal-perf">
+                <summary>Fast polling performance</summary>
+                <div className="terminal-perf-grid">
+                  {perfRows.map((row) => {
+                    const points = row.points;
+                    const line = buildSparklinePoints(points);
+                    const last = points[points.length - 1]?.ms ?? null;
+                    return (
+                      <div key={row.key} className="terminal-perf-card">
+                        <div className="terminal-perf-header">
+                          <strong>{row.label}</strong>
+                          <span className="muted">{row.key}</span>
+                        </div>
+                        <div className="terminal-perf-meta">
+                          <span>Last: {formatMs(last)}ms</span>
+                          <span>
+                            Poll:{" "}
+                            {row.pollMs ? `${row.pollMs}ms` : "adaptive"}
+                          </span>
+                        </div>
+                        <svg
+                          className="terminal-sparkline"
+                          viewBox="0 0 160 44"
+                          preserveAspectRatio="none"
+                        >
+                          <polyline points={line} />
+                        </svg>
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            ) : null}
             <div className="terminal-filters">
               {LOG_CATEGORIES.map((category) => (
                 <button
