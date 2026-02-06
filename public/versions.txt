@@ -1,3 +1,10 @@
+2026-02-06T15:26:08Z
+📚 Multi-book layout with book/ladder trader views and tighter rows.
+🎯 Order book aligns on connect and tick 1, then stays on user scroll.
+🟢 Entry price highlights with direction arrows and side-only PnL shading.
+🧾 Terminal metrics table stabilized with fast-poll sparklines.
+📰 News toasts now horizontal with close buttons and timers.
+==================
 2026-02-06T11:52:02Z
 🔌 Configurable local proxy URL for Remote connections.
 📚 Order book polling syncs with open orders with adaptive backoff and faster cadence.
