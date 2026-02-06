@@ -45,6 +45,9 @@ const POLL_INTERVALS_MS = {
   tenders: 500,
   news: 500,
 };
+const NEWS_TTL_MS = 30000;
+const BOOK_PANEL_PRIMARY_ID = "primary";
+const MAX_BOOK_PANELS = 4;
 const BOOK_DEPTH_LIMIT = 1000;
 const BOOK_POLL_MAX_MS = 1000;
 const BOOK_POLL_BACKOFF_MS = 200;
@@ -178,6 +181,16 @@ const INDICATOR_DEFAULTS = Object.fromEntries(INDICATORS.map((indicator) => [ind
 const OSCILLATOR_INDICATORS = INDICATORS.filter((indicator) => indicator.axis === "oscillator").map(
   (indicator) => indicator.id
 );
+
+const LOG_CATEGORIES = [
+  { id: "request", label: "Requests" },
+  { id: "order", label: "Orders" },
+  { id: "strategy", label: "Strategy" },
+  { id: "news", label: "News" },
+  { id: "system", label: "System" },
+  { id: "error", label: "Errors" },
+];
+const DEFAULT_LOG_FILTERS = LOG_CATEGORIES.map((category) => category.id);
 
 const normalizeBaseUrl = (url) =>
   url.replace(/\/+$/, "").replace(/\/v1$/i, "").replace(/\/v1\/$/i, "");
@@ -398,6 +411,44 @@ const aggregateCandles = (rows, bucketSize = CANDLE_BUCKET) => {
     existing.close = Number(row.close ?? row.price ?? existing.close);
   });
   return Array.from(buckets.values()).sort((a, b) => a.tick - b.tick);
+};
+
+const buildPositionsFromFills = (fills) => {
+  const positions = new Map();
+  if (!Array.isArray(fills) || fills.length === 0) return positions;
+  const sorted = [...fills].sort((a, b) => {
+    const tickA = Number(a.tick ?? 0);
+    const tickB = Number(b.tick ?? 0);
+    if (tickA !== tickB) return tickA - tickB;
+    return Number(a.order_id ?? 0) - Number(b.order_id ?? 0);
+  });
+  sorted.forEach((fill) => {
+    const price = Number(fill.vwap ?? fill.price);
+    const qty = Number(fill.quantity_filled ?? fill.quantity ?? fill.qty ?? 0);
+    if (!Number.isFinite(price) || !Number.isFinite(qty) || qty === 0) return;
+    const side = String(fill.action || "").toUpperCase();
+    const signed = side === "BUY" ? qty : -qty;
+    const ticker = fill.ticker;
+    const current = positions.get(ticker) || { qty: 0, avg: 0 };
+    const sameSide = current.qty === 0 || Math.sign(current.qty) === Math.sign(signed);
+    if (sameSide) {
+      const newQty = current.qty + signed;
+      const totalCost =
+        Math.abs(current.qty) * current.avg + Math.abs(signed) * price;
+      const avg = newQty === 0 ? 0 : totalCost / Math.abs(newQty);
+      positions.set(ticker, { qty: newQty, avg });
+      return;
+    }
+    const closing = Math.min(Math.abs(current.qty), Math.abs(signed));
+    const remaining = Math.abs(signed) - closing;
+    const newQty = current.qty + signed;
+    if (remaining > 0) {
+      positions.set(ticker, { qty: newQty, avg: price });
+    } else {
+      positions.set(ticker, { qty: newQty, avg: newQty === 0 ? 0 : current.avg });
+    }
+  });
+  return positions;
 };
 
 const calcSMA = (values, window) => {
@@ -734,7 +785,7 @@ function App() {
   const [caseInfo, setCaseInfo] = useState(null);
   const [securities, setSecurities] = useState([]);
   const [selectedTicker, setSelectedTicker] = useState("");
-  const [book, setBook] = useState(null);
+  const [booksByTicker, setBooksByTicker] = useState({});
   const [history, setHistory] = useState([]);
   const [historyEpoch, setHistoryEpoch] = useState(0);
   const [orders, setOrders] = useState([]);
@@ -753,6 +804,8 @@ function App() {
   const [terminalUnlocked, setTerminalUnlocked] = useState(false);
   const [showTerminalPrompt, setShowTerminalPrompt] = useState(false);
   const [terminalLines, setTerminalLines] = useState([]);
+  const [logFilters, setLogFilters] = useState(DEFAULT_LOG_FILTERS);
+  const [requestMetrics, setRequestMetrics] = useState({});
   const [showUpdatePrompt, setShowUpdatePrompt] = useState(false);
   const [updatePayload, setUpdatePayload] = useState(null);
   const [lastBookUpdateAt, setLastBookUpdateAt] = useState(0);
@@ -796,6 +849,8 @@ function App() {
   const [indicatorState, setIndicatorState] = useState(INDICATOR_DEFAULTS);
   const [indicatorInfo, setIndicatorInfo] = useState(null);
   const [theme, setTheme] = useState("light");
+  const [bookView, setBookView] = useState("book");
+  const [bookPanels, setBookPanels] = useState([{ id: BOOK_PANEL_PRIMARY_ID, ticker: "" }]);
 
   const [orderDraft, setOrderDraft] = useState({
     ticker: "",
@@ -867,6 +922,10 @@ function App() {
       if (stored.theme) setTheme(stored.theme);
       if (typeof stored.showRangeSlider === "boolean") setShowRangeSlider(stored.showRangeSlider);
       if (typeof stored.showChartSettings === "boolean") setShowChartSettings(stored.showChartSettings);
+      if (stored.bookView) setBookView(stored.bookView);
+      if (Array.isArray(stored.logFilters) && stored.logFilters.length) {
+        setLogFilters(stored.logFilters);
+      }
       if (stored.indicators) {
         setIndicatorState((prev) => ({
           ...prev,
@@ -909,9 +968,11 @@ function App() {
       theme,
       showRangeSlider,
       showChartSettings,
+      bookView,
+      logFilters,
       indicators: indicatorState,
     });
-  }, [indicatorState, showChartSettings, showRangeSlider, theme, uiPrefsHydrated]);
+  }, [bookView, indicatorState, logFilters, showChartSettings, showRangeSlider, theme, uiPrefsHydrated]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -926,11 +987,17 @@ function App() {
     };
   }, [activeConfig]);
 
-  const log = useCallback((message) => {
+  const log = useCallback((message, category = "system") => {
     const stamp = formatStamp(new Date());
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      stamp,
+      message,
+      category,
+    };
     setTerminalLines((prev) => {
-      const next = [...prev, `[${stamp}] ${message}`];
-      return next.slice(-200);
+      const next = [...prev, entry];
+      return next.slice(-400);
     });
   }, []);
 
@@ -983,38 +1050,134 @@ function App() {
     [playSound]
   );
 
-  const requestWithConfig = useCallback(async (cfg, path, params, options = {}) => {
-    const mergedParams = {
-      ...(cfg.params || {}),
-      ...(params || {}),
-    };
-    const url = buildUrl(cfg.baseUrl, path, mergedParams);
-    const headers = {
-      Accept: "application/json",
-      ...(cfg.headers || {}),
-      ...(options.headers || {}),
-    };
-    try {
-      const res = await fetch(url, { ...options, headers });
-      const text = await res.text();
-      const data = safeJson(text);
-      if (!res.ok) {
-        const error = new Error(`HTTP ${res.status}`);
-        error.status = res.status;
-        error.data = data;
+  const addBookPanel = useCallback(() => {
+    setBookPanels((prev) => {
+      if (prev.length >= MAX_BOOK_PANELS) {
+        // Too many books and the desk starts to wobble. 📚
+        notify(`Max ${MAX_BOOK_PANELS} order books reached.`, "info");
+        return prev;
+      }
+      const used = new Set(prev.map((panel) => panel.ticker).filter(Boolean));
+      const nextTicker =
+        securities.find((sec) => sec.ticker && !used.has(sec.ticker))?.ticker ||
+        selectedTicker ||
+        securities[0]?.ticker ||
+        "";
+      if (!nextTicker) return prev;
+      return [
+        ...prev,
+        { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, ticker: nextTicker },
+      ];
+    });
+  }, [notify, securities, selectedTicker]);
+
+  const updateBookPanelTicker = useCallback(
+    (panelId, ticker) => {
+      if (!ticker) return;
+      if (panelId === BOOK_PANEL_PRIMARY_ID) {
+        setSelectedTicker(ticker);
+        return;
+      }
+      setBookPanels((prev) =>
+        prev.map((panel) => (panel.id === panelId ? { ...panel, ticker } : panel))
+      );
+    },
+    [setSelectedTicker]
+  );
+
+  const removeBookPanel = useCallback((panelId) => {
+    if (panelId === BOOK_PANEL_PRIMARY_ID) return;
+    setBookPanels((prev) => prev.filter((panel) => panel.id !== panelId));
+  }, []);
+
+  const toggleLogFilter = useCallback((filterId) => {
+    setLogFilters((prev) => {
+      if (prev.includes(filterId)) {
+        return prev.filter((item) => item !== filterId);
+      }
+      return [...prev, filterId];
+    });
+  }, []);
+
+  const enableAllLogFilters = useCallback(() => {
+    setLogFilters(DEFAULT_LOG_FILTERS);
+  }, []);
+
+  const requestWithConfig = useCallback(
+    async (cfg, path, params, options = {}) => {
+      const mergedParams = {
+        ...(cfg.params || {}),
+        ...(params || {}),
+      };
+      const url = buildUrl(cfg.baseUrl, path, mergedParams);
+      const headers = {
+        Accept: "application/json",
+        ...(cfg.headers || {}),
+        ...(options.headers || {}),
+      };
+      const method = (options.method || "GET").toUpperCase();
+      const startedAt = performance.now();
+      const recordMetric = (status, durationMs) => {
+        const key = `${method} ${path}`;
+        setRequestMetrics((prev) => {
+          const existing = prev[key] || {
+            count: 0,
+            totalMs: 0,
+            avgMs: 0,
+            lastMs: 0,
+            lastStatus: null,
+          };
+          const count = existing.count + 1;
+          const totalMs = existing.totalMs + durationMs;
+          return {
+            ...prev,
+            [key]: {
+              count,
+              totalMs,
+              avgMs: totalMs / count,
+              lastMs: durationMs,
+              lastStatus: status,
+            },
+          };
+        });
+      };
+      try {
+        const res = await fetch(url, { ...options, headers });
+        const text = await res.text();
+        const data = safeJson(text);
+        const durationMs = Math.max(0, performance.now() - startedAt);
+        recordMetric(res.status, durationMs);
+        log(
+          `${method} ${path} -> ${res.status} (${Math.round(durationMs)}ms)`,
+          "request"
+        );
+        if (!res.ok) {
+          const error = new Error(`HTTP ${res.status}`);
+          error.status = res.status;
+          error.data = data;
+          error.__logged = true;
+          throw error;
+        }
+        return data;
+      } catch (error) {
+        if (error?.__logged) {
+          throw error;
+        }
+        const durationMs = Math.max(0, performance.now() - startedAt);
+        const status = error?.status ?? "ERR";
+        recordMetric(status, durationMs);
+        log(`${method} ${path} -> ${status} (${Math.round(durationMs)}ms)`, "request");
+        const networkError = error instanceof TypeError && String(error.message).includes("fetch");
+        if (networkError) {
+          const wrapped = new Error("Network error (possible CORS block)");
+          wrapped.isNetworkError = true;
+          throw wrapped;
+        }
         throw error;
       }
-      return data;
-    } catch (error) {
-      const networkError = error instanceof TypeError && String(error.message).includes("fetch");
-      if (networkError) {
-        const wrapped = new Error("Network error (possible CORS block)");
-        wrapped.isNetworkError = true;
-        throw wrapped;
-      }
-      throw error;
-    }
-  }, []);
+    },
+    [log]
+  );
 
   const apiGet = useCallback(
     async (path, params = {}) => requestWithConfig(config, path, params),
@@ -1099,8 +1262,8 @@ function App() {
       setLastConnectAt(Date.now());
       setLastBookUpdateAt(0);
       playSound("connect");
-      log(`Connected to ${cfg.baseUrl}`);
-      log(`Case: ${caseData?.name ?? "Unknown"}`);
+      log(`Connected to ${cfg.baseUrl}`, "system");
+      log(`Case: ${caseData?.name ?? "Unknown"}`, "system");
     } catch (error) {
       setActiveConfig(null);
       setConnectionStatus("Disconnected");
@@ -1109,7 +1272,7 @@ function App() {
       if (error?.isNetworkError && !useProxy) {
         setProxyHint("Browser blocked this request (likely CORS). Run the local proxy and enable Use Proxy.");
       }
-      log(`Connection error: ${error?.message || "Unknown"}`);
+      log(`Connection error: ${error?.message || "Unknown"}`, "error");
     }
   }, [
     cloudProxyUrl,
@@ -1131,7 +1294,8 @@ function App() {
     setCaseInfo(null);
     setSecurities([]);
     setSelectedTicker("");
-    setBook(null);
+    setBookPanels([{ id: BOOK_PANEL_PRIMARY_ID, ticker: "" }]);
+    setBooksByTicker({});
     setHistory([]);
     setOrders([]);
     setTraderInfo(null);
@@ -1146,7 +1310,7 @@ function App() {
     setLastBookUpdateAt(0);
     lastCaseRef.current = { tick: null, period: null };
     bookCenterRef.current = { connectAt: null, caseKey: null, tick2Period: null };
-    log("Disconnected");
+    log("Disconnected", "system");
   };
 
   useEffect(() => {
@@ -1159,7 +1323,7 @@ function App() {
         if (!stop) setCaseInfo(data || null);
       } catch (error) {
         if (!stop && error?.status !== 429) {
-          log(`Case error: ${error.message}`);
+          log(`Case error: ${error.message}`, "error");
           maybeSuggestProxy(error);
         }
       }
@@ -1214,7 +1378,7 @@ function App() {
         }
       } catch (error) {
         if (!stop && error?.status !== 429) {
-          log(`TAS error: ${error.message}`);
+          log(`TAS error: ${error.message}`, "error");
           maybeSuggestProxy(error);
         }
       }
@@ -1256,7 +1420,7 @@ function App() {
         });
       } catch (error) {
         if (!stop && error?.status !== 429) {
-          log(`Fills error: ${error.message}`);
+          log(`Fills error: ${error.message}`, "error");
           maybeSuggestProxy(error);
         }
       }
@@ -1365,7 +1529,7 @@ function App() {
         });
       } catch (error) {
         if (!stop && error?.status !== 429) {
-          log(`Trader error: ${error.message}`);
+          log(`Trader error: ${error.message}`, "error");
           maybeSuggestProxy(error);
         }
       }
@@ -1422,9 +1586,9 @@ function App() {
           quantity: demoStrategy.quantity,
           action: side,
         });
-        log(`Demo strategy: ${side} ${demoStrategy.quantity} ${selectedTicker} @ MKT`);
+        log(`Demo strategy: ${side} ${demoStrategy.quantity} ${selectedTicker} @ MKT`, "strategy");
       } catch (error) {
-        log(`Demo strategy error: ${error?.data?.message || error.message}`);
+        log(`Demo strategy error: ${error?.data?.message || error.message}`, "error");
       }
     };
 
@@ -1482,7 +1646,7 @@ function App() {
         if (!stop) setSecurities(list || []);
       } catch (error) {
         if (!stop) {
-          log(`Securities error: ${error.message}`);
+          log(`Securities error: ${error.message}`, "error");
           maybeSuggestProxy(error);
         }
       }
@@ -1515,7 +1679,7 @@ function App() {
         tenderIdsRef.current = nextIds;
       } catch (error) {
         if (!stop && error?.status !== 429) {
-          log(`Tenders error: ${error.message}`);
+          log(`Tenders error: ${error.message}`, "error");
         }
       }
     };
@@ -1555,32 +1719,65 @@ function App() {
   }, [selectedTicker]);
 
   useEffect(() => {
-    if (!config || !selectedTicker) return undefined;
+    if (!selectedTicker) return;
+    setBookPanels((prev) => {
+      const hasPrimary = prev.some((panel) => panel.id === BOOK_PANEL_PRIMARY_ID);
+      const nextPanels = hasPrimary ? [...prev] : [{ id: BOOK_PANEL_PRIMARY_ID, ticker: selectedTicker }, ...prev];
+      let changed = !hasPrimary;
+      const updated = nextPanels.map((panel) => {
+        if (panel.id !== BOOK_PANEL_PRIMARY_ID) return panel;
+        if (panel.ticker === selectedTicker) return panel;
+        changed = true;
+        return { ...panel, ticker: selectedTicker };
+      });
+      return changed ? updated : prev;
+    });
+  }, [selectedTicker]);
+
+  const bookTickers = useMemo(() => {
+    const tickers = bookPanels.map((panel) => panel.ticker).filter(Boolean);
+    if (!tickers.length && selectedTicker) tickers.push(selectedTicker);
+    return Array.from(new Set(tickers));
+  }, [bookPanels, selectedTicker]);
+
+  useEffect(() => {
+    if (!config || !bookTickers.length) return undefined;
     let stop = false;
     let inFlight = false;
     let timeoutId = null;
-    let delayMs = POLL_INTERVALS_MS.book;
+    let cursor = 0;
+    let delayMs =
+      bookTickers.length > 1
+        ? Math.max(BOOK_POLL_BACKOFF_MS, POLL_INTERVALS_MS.book || 0)
+        : POLL_INTERVALS_MS.book;
 
     const pullBook = async () => {
       if (stop || inFlight) return;
       inFlight = true;
+      const ticker = bookTickers[cursor % bookTickers.length];
+      cursor += 1;
       try {
         const bookData = await apiGet("/securities/book", {
-          ticker: selectedTicker,
+          ticker,
           limit: BOOK_DEPTH_LIMIT,
         });
         if (!stop) {
-          setBook(bookData || null);
-          setLastBookUpdateAt(Date.now());
-          if (hadStaleRef.current) {
-            setChartView({});
-            hadStaleRef.current = false;
+          setBooksByTicker((prev) => ({ ...prev, [ticker]: bookData || null }));
+          if (ticker === selectedTicker) {
+            setLastBookUpdateAt(Date.now());
+            if (hadStaleRef.current) {
+              setChartView({});
+              hadStaleRef.current = false;
+            }
           }
         }
-        delayMs = POLL_INTERVALS_MS.book;
+        delayMs =
+          bookTickers.length > 1
+            ? Math.max(BOOK_POLL_BACKOFF_MS, POLL_INTERVALS_MS.book || 0)
+            : POLL_INTERVALS_MS.book;
       } catch (error) {
         if (!stop && error?.status !== 429) {
-          log(`Book error: ${error.message}`);
+          log(`Book error: ${error.message}`, "error");
           maybeSuggestProxy(error);
         }
         if (error?.status === 429) {
@@ -1589,7 +1786,10 @@ function App() {
             Math.max(BOOK_POLL_BACKOFF_MS, delayMs * 2 || BOOK_POLL_BACKOFF_MS)
           );
         } else {
-          delayMs = Math.min(BOOK_POLL_MAX_MS, Math.max(BOOK_POLL_BACKOFF_MS, delayMs || BOOK_POLL_BACKOFF_MS));
+          delayMs = Math.min(
+            BOOK_POLL_MAX_MS,
+            Math.max(BOOK_POLL_BACKOFF_MS, delayMs || BOOK_POLL_BACKOFF_MS)
+          );
         }
       } finally {
         inFlight = false;
@@ -1606,7 +1806,7 @@ function App() {
       stop = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [apiGet, config, log, maybeSuggestProxy, selectedTicker]);
+  }, [apiGet, bookTickers, config, log, maybeSuggestProxy, selectedTicker]);
 
   useEffect(() => {
     if (!config) return undefined;
@@ -1643,7 +1843,7 @@ function App() {
         }
       } catch (error) {
         if (!stop && error?.status !== 429) {
-          log(`Orders error: ${error.message}`);
+          log(`Orders error: ${error.message}`, "error");
           maybeSuggestProxy(error);
         }
       } finally {
@@ -1717,7 +1917,7 @@ function App() {
             });
             const merged = Array.from(map.values());
             merged.sort((a, b) => (a.sortKey || 0) - (b.sortKey || 0));
-            const cutoff = Date.now() - 30000;
+            const cutoff = Date.now() - NEWS_TTL_MS;
             return merged.filter((item) => (item.receivedAt ?? 0) >= cutoff).slice(-60);
           });
           if (didPing) {
@@ -1732,7 +1932,7 @@ function App() {
         }
       } catch (error) {
         if (!stop && error?.status !== 429) {
-          log(`News error: ${error.message}`);
+          log(`News error: ${error.message}`, "news");
         }
       }
     };
@@ -1747,7 +1947,9 @@ function App() {
 
   useEffect(() => {
     const id = setInterval(() => {
-      setNewsItems((prev) => prev.filter((item) => Date.now() - (item.receivedAt ?? 0) < 30000));
+      setNewsItems((prev) =>
+        prev.filter((item) => Date.now() - (item.receivedAt ?? 0) < NEWS_TTL_MS)
+      );
     }, 1000);
     return () => clearInterval(id);
   }, []);
@@ -1766,7 +1968,7 @@ function App() {
         if (!stop) setHistory(historyData || []);
       } catch (error) {
         if (!stop && error?.status !== 429) {
-          log(`History error: ${error.message}`);
+          log(`History error: ${error.message}`, "error");
           maybeSuggestProxy(error);
         }
       }
@@ -1784,7 +1986,7 @@ function App() {
     const quantity = parseInt(orderDraft.quantity, 10);
     const price = parseFloat(orderDraft.price);
     if (!orderDraft.ticker || !quantity || !price) {
-      log("Order entry missing fields.");
+      log("Order entry missing fields.", "order");
       return;
     }
 
@@ -1797,11 +1999,11 @@ function App() {
         price,
       };
       const result = await apiPost("/orders", payload);
-      log(`Order sent: ${orderDraft.side} ${quantity} ${orderDraft.ticker} @ ${price}`);
-      log(`Order response: ${JSON.stringify(result)}`);
+      log(`Order sent: ${orderDraft.side} ${quantity} ${orderDraft.ticker} @ ${price}`, "order");
+      log(`Order response: ${JSON.stringify(result)}`, "order");
       notify(`Order placed: ${orderDraft.side} ${quantity} ${orderDraft.ticker} @ ${price}`, "info");
     } catch (error) {
-      log(`Order error: ${error?.data?.message || error.message}`);
+      log(`Order error: ${error?.data?.message || error.message}`, "error");
     }
   };
 
@@ -1810,29 +2012,29 @@ function App() {
     try {
       cancelledOrdersRef.current.set(orderId, Date.now());
       await apiDelete(`/orders/${orderId}`);
-      log(`Order ${orderId} cancelled.`);
+      log(`Order ${orderId} cancelled.`, "order");
     } catch (error) {
-      log(`Cancel error: ${error?.data?.message || error.message}`);
+      log(`Cancel error: ${error?.data?.message || error.message}`, "error");
     }
   };
 
-  const placeQuickOrder = async (side, price) => {
-    if (!config || !selectedTicker) return;
+  const placeQuickOrder = async (ticker, side, price) => {
+    if (!config || !ticker) return;
     const quantity = parseInt(orderDraft.quantity, 10) || 1;
     const roundedPrice = Number(price);
     try {
       const payload = {
-        ticker: selectedTicker,
+        ticker,
         type: "LIMIT",
         quantity,
         action: side,
         price: roundedPrice,
       };
       await apiPost("/orders", payload);
-      log(`Quick order: ${side} ${quantity} ${selectedTicker} @ ${roundedPrice}`);
-      notify(`Order placed: ${side} ${quantity} ${selectedTicker} @ ${roundedPrice}`, "info");
+      log(`Quick order: ${side} ${quantity} ${ticker} @ ${roundedPrice}`, "order");
+      notify(`Order placed: ${side} ${quantity} ${ticker} @ ${roundedPrice}`, "info");
     } catch (error) {
-      log(`Quick order error: ${error?.data?.message || error.message}`);
+      log(`Quick order error: ${error?.data?.message || error.message}`, "error");
     }
   };
 
@@ -1850,7 +2052,7 @@ function App() {
       notify(`Tender accepted: ${tender.ticker} ${tender.quantity}`, "success");
       setTenders((prev) => prev.filter((item) => item.tender_id !== tender.tender_id));
     } catch (error) {
-      log(`Tender accept error: ${error?.data?.message || error.message}`);
+      log(`Tender accept error: ${error?.data?.message || error.message}`, "error");
     }
   };
 
@@ -1861,47 +2063,197 @@ function App() {
       notify(`Tender declined: ${tenderId}`, "info");
       setTenders((prev) => prev.filter((item) => item.tender_id !== tenderId));
     } catch (error) {
-      log(`Tender decline error: ${error?.data?.message || error.message}`);
+      log(`Tender decline error: ${error?.data?.message || error.message}`, "error");
     }
   };
 
-  const lastPrice = securities.find((sec) => sec.ticker === selectedTicker)?.last ?? null;
-  const bidPrice = securities.find((sec) => sec.ticker === selectedTicker)?.bid ?? null;
-  const askPrice = securities.find((sec) => sec.ticker === selectedTicker)?.ask ?? null;
+  const securityByTicker = useMemo(
+    () => new Map(securities.map((sec) => [sec.ticker, sec])),
+    [securities]
+  );
 
-  const activeSecurity = securities.find((sec) => sec.ticker === selectedTicker) || {};
-  const quotedDecimals = Number.isInteger(activeSecurity.quoted_decimals)
-    ? activeSecurity.quoted_decimals
-    : 2;
-  const priceStep = getStepFromDecimals(quotedDecimals);
+  const decimalsByTicker = useMemo(() => {
+    const map = new Map();
+    securities.forEach((sec) => {
+      const decimals = Number.isInteger(sec.quoted_decimals) ? sec.quoted_decimals : 2;
+      if (sec.ticker) map.set(sec.ticker, decimals);
+    });
+    return map;
+  }, [securities]);
 
-  const aggregateLevels = (levels) => {
+  const priceByTicker = useMemo(() => {
+    const map = new Map();
+    securities.forEach((sec) => {
+      const last = Number(sec.last);
+      const bid = Number(sec.bid);
+      const ask = Number(sec.ask);
+      const mid =
+        Number.isFinite(bid) && Number.isFinite(ask) ? (bid + ask) / 2 : Number.NaN;
+      const price = Number.isFinite(last) ? last : Number.isFinite(mid) ? mid : bid || ask;
+      if (Number.isFinite(price) && sec.ticker) {
+        map.set(sec.ticker, price);
+      }
+    });
+    return map;
+  }, [securities]);
+
+  const aggregateLevels = useCallback((levels, decimals) => {
     const map = new Map();
     (levels || []).forEach((level) => {
       if (level?.price === undefined || level?.price === null) return;
       const qty = getQty(level) ?? 0;
-      const key = Number(level.price).toFixed(quotedDecimals);
+      const key = Number(level.price).toFixed(decimals);
       map.set(key, (map.get(key) || 0) + qty);
     });
     return map;
-  };
+  }, []);
 
-  const bidLevels = book?.bids || book?.bid || [];
-  const askLevels = book?.asks || book?.ask || [];
-  const bidMap = aggregateLevels(bidLevels);
-  const askMap = aggregateLevels(askLevels);
-  const maxVolume = Math.max(
-    1,
-    ...Array.from(bidMap.values()),
-    ...Array.from(askMap.values())
+  const positionMap = useMemo(() => buildPositionsFromFills(fills), [fills]);
+
+  const positionRangeByTicker = useMemo(() => {
+    const map = new Map();
+    positionMap.forEach((pos, ticker) => {
+      const mark = priceByTicker.get(ticker);
+      if (!pos?.qty || !Number.isFinite(pos.avg) || !Number.isFinite(mark)) return;
+      const pnlValue =
+        pos.qty > 0
+          ? (mark - pos.avg) * pos.qty
+          : (pos.avg - mark) * Math.abs(pos.qty);
+      map.set(ticker, {
+        min: Math.min(pos.avg, mark),
+        max: Math.max(pos.avg, mark),
+        tone: pnlValue >= 0 ? "win" : "loss",
+      });
+    });
+    return map;
+  }, [positionMap, priceByTicker]);
+
+  const ordersByTickerPrice = useMemo(() => {
+    const map = new Map();
+    orders.forEach((order) => {
+      const ticker = order?.ticker;
+      if (!ticker || order?.price == null) return;
+      const decimals = decimalsByTicker.get(ticker) ?? 2;
+      const key = Number(order.price).toFixed(decimals);
+      const side = String(order.action || "").toUpperCase();
+      const qty = Number(order.quantity ?? order.qty ?? 0);
+      const tickerMap = map.get(ticker) || new Map();
+      const entry =
+        tickerMap.get(key) || { buyQty: 0, buyCount: 0, sellQty: 0, sellCount: 0 };
+      if (side === "BUY") {
+        entry.buyQty += qty;
+        entry.buyCount += 1;
+      } else if (side === "SELL") {
+        entry.sellQty += qty;
+        entry.sellCount += 1;
+      }
+      tickerMap.set(key, entry);
+      map.set(ticker, tickerMap);
+    });
+    return map;
+  }, [decimalsByTicker, orders]);
+
+  const rowCount = 80;
+
+  const buildBookState = useCallback(
+    (ticker) => {
+      if (!ticker) {
+        return {
+          ticker,
+          quotedDecimals: 2,
+          priceStep: getStepFromDecimals(2),
+          rows: [],
+          maxVolume: 1,
+          bestBidPrice: null,
+          bestAskPrice: null,
+          midPrice: 0,
+          ordersByPrice: new Map(),
+        };
+      }
+      const security = securityByTicker.get(ticker) || {};
+      const quotedDecimals = decimalsByTicker.get(ticker) ?? 2;
+      const priceStep = getStepFromDecimals(quotedDecimals);
+      const bookData = booksByTicker[ticker] || null;
+      const bidLevels = bookData?.bids || bookData?.bid || [];
+      const askLevels = bookData?.asks || bookData?.ask || [];
+      const bidMap = aggregateLevels(bidLevels, quotedDecimals);
+      const askMap = aggregateLevels(askLevels, quotedDecimals);
+      const maxVolume = Math.max(
+        1,
+        ...Array.from(bidMap.values()),
+        ...Array.from(askMap.values())
+      );
+      const last = security.last ?? null;
+      const bid = security.bid ?? null;
+      const ask = security.ask ?? null;
+      const bestBidPrice = bidLevels[0]?.price ?? bid ?? last;
+      const bestAskPrice = askLevels[0]?.price ?? ask ?? last;
+      const midPrice =
+        bestBidPrice && bestAskPrice
+          ? (Number(bestBidPrice) + Number(bestAskPrice)) / 2
+          : Number(bestBidPrice || bestAskPrice || last || 0);
+      const halfRows = Math.floor(rowCount / 2);
+      const midTick = toStepTick(midPrice, priceStep);
+      const hasSpread =
+        Number.isFinite(bestBidPrice) &&
+        Number.isFinite(bestAskPrice) &&
+        Number(bestAskPrice) - Number(bestBidPrice) > priceStep;
+      const spreadCenterTick = hasSpread
+        ? toStepTick((Number(bestBidPrice) + Number(bestAskPrice)) / 2, priceStep)
+        : midTick;
+      const positionRange = positionRangeByTicker.get(ticker) || null;
+      const rows = Array.from({ length: rowCount }, (_, idx) => {
+        const offset = halfRows - idx;
+        const tick = midTick + offset;
+        const price = fromStepTick(tick, priceStep, quotedDecimals);
+        const key = price.toFixed(quotedDecimals);
+        const isSpread =
+          hasSpread && price > Number(bestBidPrice) && price < Number(bestAskPrice);
+        const inPnlRange =
+          positionRange && price >= positionRange.min && price <= positionRange.max;
+        return {
+          price,
+          bidQty: bidMap.get(key) || 0,
+          askQty: askMap.get(key) || 0,
+          isMid: hasSpread && tick === midTick,
+          isSpread,
+          isCenter: tick === spreadCenterTick,
+          pnlTone: inPnlRange ? positionRange.tone : null,
+          key,
+        };
+      });
+      return {
+        ticker,
+        quotedDecimals,
+        priceStep,
+        rows,
+        maxVolume,
+        bestBidPrice,
+        bestAskPrice,
+        midPrice,
+        ordersByPrice: ordersByTickerPrice.get(ticker) || new Map(),
+      };
+    },
+    [aggregateLevels, booksByTicker, decimalsByTicker, ordersByTickerPrice, positionRangeByTicker, securityByTicker]
   );
 
-  const bestBidPrice = bidLevels[0]?.price ?? bidPrice ?? lastPrice;
-  const bestAskPrice = askLevels[0]?.price ?? askPrice ?? lastPrice;
-  const midPrice =
-    bestBidPrice && bestAskPrice
-      ? (Number(bestBidPrice) + Number(bestAskPrice)) / 2
-      : Number(bestBidPrice || bestAskPrice || lastPrice || 0);
+  const selectedBookState = useMemo(
+    () => buildBookState(selectedTicker),
+    [buildBookState, selectedTicker]
+  );
+  const bookStates = useMemo(
+    () => bookPanels.map((panel) => ({ panel, state: buildBookState(panel.ticker) })),
+    [bookPanels, buildBookState]
+  );
+  const isMultiBook = bookPanels.length > 1;
+
+  const lastPrice = securityByTicker.get(selectedTicker)?.last ?? null;
+  const bidPrice = securityByTicker.get(selectedTicker)?.bid ?? null;
+  const askPrice = securityByTicker.get(selectedTicker)?.ask ?? null;
+  const priceRows = selectedBookState.rows;
+  const bestBidPrice = selectedBookState.bestBidPrice ?? bidPrice ?? lastPrice;
+  const bestAskPrice = selectedBookState.bestAskPrice ?? askPrice ?? lastPrice;
+  const midPrice = selectedBookState.midPrice;
 
   useEffect(() => {
     const sec = securities.find((item) => item.ticker === selectedTicker) || {};
@@ -1913,54 +2265,6 @@ function App() {
       bestAsk: Number(bestAskPrice ?? 0),
     };
   }, [securities, selectedTicker, lastPrice, midPrice, bestBidPrice, bestAskPrice]);
-
-  const rowCount = 80;
-  const halfRows = Math.floor(rowCount / 2);
-  const midTick = toStepTick(midPrice, priceStep);
-  const hasSpread =
-    Number.isFinite(bestBidPrice) &&
-    Number.isFinite(bestAskPrice) &&
-    Number(bestAskPrice) - Number(bestBidPrice) > priceStep;
-  const spreadCenterTick = hasSpread
-    ? toStepTick((Number(bestBidPrice) + Number(bestAskPrice)) / 2, priceStep)
-    : midTick;
-  const priceRows = Array.from({ length: rowCount }, (_, idx) => {
-    const offset = halfRows - idx;
-    const tick = midTick + offset;
-    const price = fromStepTick(tick, priceStep, quotedDecimals);
-    const key = price.toFixed(quotedDecimals);
-    const isSpread =
-      hasSpread && price > Number(bestBidPrice) && price < Number(bestAskPrice);
-    return {
-      price,
-      bidQty: bidMap.get(key) || 0,
-      askQty: askMap.get(key) || 0,
-      isMid: hasSpread && tick === midTick,
-      isSpread,
-      isCenter: tick === spreadCenterTick,
-      key,
-    };
-  });
-
-  const ordersByPrice = useMemo(() => {
-    const map = new Map();
-    orders.forEach((order) => {
-      if (order?.ticker !== selectedTicker || order?.price == null) return;
-      const key = Number(order.price).toFixed(quotedDecimals);
-      const side = String(order.action || "").toUpperCase();
-      const qty = Number(order.quantity ?? order.qty ?? 0);
-      const entry = map.get(key) || { buyQty: 0, buyCount: 0, sellQty: 0, sellCount: 0 };
-      if (side === "BUY") {
-        entry.buyQty += qty;
-        entry.buyCount += 1;
-      } else if (side === "SELL") {
-        entry.sellQty += qty;
-        entry.sellCount += 1;
-      }
-      map.set(key, entry);
-    });
-    return map;
-  }, [orders, quotedDecimals, selectedTicker]);
 
   const centerOrderBook = useCallback(() => {
     const container = bookScrollRef.current;
@@ -2374,6 +2678,26 @@ function App() {
     return list.slice(0, 120);
   }, [fills, selectedTicker]);
 
+  const newsDeck = useMemo(() => {
+    const sorted = [...newsItems].sort(
+      (a, b) => (b.receivedAt ?? 0) - (a.receivedAt ?? 0)
+    );
+    return sorted.slice(0, 6);
+  }, [newsItems]);
+
+  const filteredTerminalLines = useMemo(() => {
+    if (!logFilters.length) return [];
+    const allowed = new Set(logFilters);
+    return terminalLines.filter((line) => allowed.has(line.category));
+  }, [logFilters, terminalLines]);
+
+  const requestMetricRows = useMemo(() => {
+    return Object.entries(requestMetrics)
+      .map(([key, value]) => ({ key, ...value }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+  }, [requestMetrics]);
+
   const realizedData = useMemo(() => {
     if (!realizedSeries.length) return [];
     return [
@@ -2416,18 +2740,14 @@ function App() {
     : connectionStatus === "Connected"
       ? "online"
       : "offline";
-  const statusDetail = isCaseStopped
-    ? "Connected, idling."
-    : caseInfo?.name || "No case selected";
-  const newsText = newsItems.length
-    ? newsItems.map((item) => item.text).join(" • ")
-    : Array.from({ length: 3 }, () => "News feed idle").join(" • ");
-  const newsLoop = Array.from({ length: 6 }, () => newsText).join(" • ");
-  const timeTicker = caseInfo
-    ? `Tick ${caseInfo.tick ?? "—"} / ${caseInfo.ticks_per_period ?? "—"} • Period ${
-        caseInfo.period ?? "—"
-      } / ${caseInfo.total_periods ?? "—"}`
-    : "";
+  const isConnected = connectionStatus === "Connected";
+  const caseLabel = caseInfo?.name || caseInfo?.case_id || "No case selected";
+  const tickLabel = caseInfo
+    ? `${caseInfo.tick ?? "—"} / ${caseInfo.ticks_per_period ?? "—"}`
+    : "—";
+  const periodLabel = caseInfo
+    ? `${caseInfo.period ?? "—"} / ${caseInfo.total_periods ?? "—"}`
+    : "—";
   const ticksPerPeriod = caseInfo?.ticks_per_period ?? null;
   const currentTick = caseInfo?.tick ?? null;
   const ticksLeft =
@@ -2440,6 +2760,7 @@ function App() {
       : 0;
   const tickHue = Number.isFinite(tickProgress) ? 120 * (1 - tickProgress) : 120;
   const tickColor = `hsl(${tickHue}, 70%, 45%)`;
+  const connectedHost = config ? formatHost(config.baseUrl) : "—";
   const routeSteps = useMemo(() => {
     if (connectionStatus !== "Connected") return [];
     if (mode === "local") {
@@ -2530,27 +2851,59 @@ function App() {
           </div>
         ))}
       </div>
-      <div className="news-ticker">
-        <div className="news-track">
-          <span>{newsLoop}</span>
-          <span aria-hidden="true">{newsLoop}</span>
-        </div>
+      <div className="news-stack" aria-live="polite">
+        {newsDeck.map((item) => {
+          const ageMs = Math.max(0, now - (item.receivedAt ?? now));
+          const remaining = Math.max(0, NEWS_TTL_MS - ageMs);
+          const progress = Math.max(0, Math.min(1, remaining / NEWS_TTL_MS));
+          return (
+            <div key={item.id} className="news-card">
+              <div className="news-card__body">{item.text}</div>
+              <div className="news-timer">
+                <span className="news-timer__bar" style={{ width: `${progress * 100}%` }} />
+              </div>
+            </div>
+          );
+        })}
       </div>
-      <header className="hero">
-        <div>
-          <p className="hero-eyebrow">RIT Trading Client</p>
-          <div className="hero-title">
-            <img className="hero-logo" src={logoUrl} alt="Privod Johnny logo" />
-            <h1>Privod Johnny</h1>
+      <header className="topbar">
+        <div className="topbar-left">
+          <img className="topbar-logo" src={logoUrl} alt="Privod Johnny logo" />
+          <div className="topbar-title">
+            <span className="topbar-name">Privod Johnny</span>
+            <span className={`status-pill status-pill--compact ${statusClass}`}>
+              {statusLabel}
+            </span>
           </div>
-          <p className="hero-subtitle">A modern trading cockpit with live order book, candles, and fast order entry.</p>
         </div>
-        <div className="status-block">
-          <div className={`status-pill ${statusClass}`}>
-            {statusLabel}
+        <div className="topbar-center">
+          <div className="topbar-stat">
+            <span className="topbar-label">Case</span>
+            <strong>{caseLabel}</strong>
           </div>
+          <div className="topbar-stat">
+            <span className="topbar-label">Tick</span>
+            <strong>{tickLabel}</strong>
+          </div>
+          <div className="topbar-stat">
+            <span className="topbar-label">Period</span>
+            <strong>{periodLabel}</strong>
+          </div>
+          {ticksLeft !== null && (
+            <div className="topbar-progress">
+              <div className="tick-bar tick-bar--mini" aria-label={`Ticks left: ${ticksLeft}`}>
+                <div
+                  className="tick-bar__fill"
+                  style={{ width: `${Math.round(tickProgress * 100)}%`, background: tickColor }}
+                />
+              </div>
+              <span className="topbar-meta">{ticksLeft} left</span>
+            </div>
+          )}
+        </div>
+        <div className="topbar-right">
           {routeSteps.length > 0 && (
-            <div className="status-route status-route--inline">
+            <div className="status-route status-route--compact">
               {routeSteps.map((step, index) => (
                 <span key={`${step}-${index}`} className="status-route__step">
                   {step}
@@ -2558,24 +2911,9 @@ function App() {
               ))}
             </div>
           )}
-          <span className="status-detail">{statusDetail}</span>
-          {timeTicker && <span className="status-meta">{timeTicker}</span>}
-          {ticksLeft !== null && (
-            <>
-              <div className="tick-bar" aria-label={`Ticks left: ${ticksLeft}`}>
-                <div
-                  className="tick-bar__fill"
-                  style={{ width: `${Math.round(tickProgress * 100)}%`, background: tickColor }}
-                />
-              </div>
-              <span className="status-meta">Ticks left: {ticksLeft}</span>
-            </>
-          )}
-        </div>
-        <div className="hero-actions">
           <button
             type="button"
-            className="theme-toggle"
+            className="theme-toggle theme-toggle--compact"
             aria-pressed={theme === "dark"}
             onClick={() => setTheme((prev) => (prev === "dark" ? "light" : "dark"))}
           >
@@ -2589,194 +2927,66 @@ function App() {
 
       <div className="layout">
         <aside className="sidebar">
-          <section className="card">
+          <section className="card connection-card">
             <div className="card-title">Connection</div>
-            <div className="segmented">
-              <button
-                type="button"
-                className={mode === "local" ? "active" : ""}
-                onClick={() => setMode("local")}
-              >
-                Local (Client)
-              </button>
-              <button
-                type="button"
-                className={mode === "remote" ? "active" : ""}
-                onClick={() => setMode("remote")}
-              >
-                Remote (DMA)
-              </button>
-            </div>
-
-            {mode === "local" ? (
-              <div className="form-grid">
-                <label>
-                  Base URL
-                  <input
-                    value={localConfig.baseUrl}
-                    onChange={(event) =>
-                      setLocalConfig((prev) => ({ ...prev, baseUrl: event.target.value }))
-                    }
-                  />
-                </label>
-                <label>
-                  API Key
-                  <input
-                    value={localConfig.apiKey}
-                    onChange={(event) =>
-                      setLocalConfig((prev) => ({ ...prev, apiKey: event.target.value }))
-                    }
-                  />
-                </label>
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={useProxyLocal}
-                    onChange={(event) => setUseProxyLocal(event.target.checked)}
-                  />
-                  Use proxy
-                </label>
-                {useProxyLocal && (
-                  <label>
-                    Local proxy URL
-                    <input
-                      value={localProxyUrl}
-                      onChange={(event) => setLocalProxyUrl(event.target.value)}
-                      placeholder="http://localhost:3001"
-                    />
-                  </label>
-                )}
+            {isConnected ? (
+              <div className="connection-compact">
+                <div>
+                  <div className="muted">Connected to {connectedHost}</div>
+                  <div className="muted">Case: {caseLabel}</div>
+                </div>
+                <button type="button" className="ghost" onClick={disconnect}>
+                  Disconnect
+                </button>
               </div>
             ) : (
-              <div className="form-grid">
-                <label>
-                  Base URL
-                  <input
-                    value={remoteConfig.baseUrl}
-                    onChange={(event) =>
-                      setRemoteConfig((prev) => ({ ...prev, baseUrl: event.target.value }))
-                    }
-                  />
-                </label>
-                <div className="muted">
-                  DMA port is set from the case selector below. Proxy requests now honor the
-                  selected port.
+              <>
+                <div className="segmented">
+                  <button
+                    type="button"
+                    className={mode === "local" ? "active" : ""}
+                    onClick={() => setMode("local")}
+                  >
+                    Local (Client)
+                  </button>
+                  <button
+                    type="button"
+                    className={mode === "remote" ? "active" : ""}
+                    onClick={() => setMode("remote")}
+                  >
+                    Remote (DMA)
+                  </button>
                 </div>
-                <label>
-                  Case
-                  <select
-                    value={remoteConfig.caseId}
-                    onChange={(event) => {
-                      const nextCase = event.target.value;
-                      const defaultPort = resolveCasePort(nextCase, remoteConfig.algoPort);
-                      setRemoteConfig((prev) => ({
-                        ...prev,
-                        caseId: nextCase,
-                        baseUrl: defaultPort ? updateUrlPort(prev.baseUrl, defaultPort) : prev.baseUrl,
-                        algoPort:
-                          nextCase === "algo-mm"
-                            ? prev.algoPort ?? DMA_CASES.find((item) => item.id === "algo-mm")?.ports?.[0]
-                            : prev.algoPort,
-                      }));
-                    }}
-                  >
-                    {DMA_CASES.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {remoteConfig.caseId === "algo-mm" && (
-                  <label>
-                    Algo MM port
-                    <select
-                      value={remoteConfig.algoPort}
-                      onChange={(event) => {
-                        const port = Number(event.target.value);
-                        setRemoteConfig((prev) => ({
-                          ...prev,
-                          algoPort: port,
-                          baseUrl: updateUrlPort(prev.baseUrl, port),
-                        }));
-                      }}
-                    >
-                      {DMA_CASES.find((item) => item.id === "algo-mm")?.ports?.map((port) => (
-                        <option key={port} value={port}>
-                          {port}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                <label>
-                  Auth mode
-                  <select
-                    value={remoteConfig.authMode}
-                    onChange={(event) =>
-                      setRemoteConfig((prev) => ({ ...prev, authMode: event.target.value }))
-                    }
-                  >
-                    <option value="header">Authorization header</option>
-                    <option value="basic">Username + password</option>
-                  </select>
-                </label>
-                {remoteConfig.authMode === "header" ? (
-                  <label>
-                    Authorization
-                    <input
-                      type="password"
-                      value={remoteConfig.authHeader}
-                      onChange={(event) =>
-                        setRemoteConfig((prev) => ({ ...prev, authHeader: event.target.value }))
-                      }
-                      placeholder="Basic XXXXXXXXXX"
-                    />
-                  </label>
-                ) : (
-                  <>
+
+                {mode === "local" ? (
+                  <div className="form-grid">
                     <label>
-                      Username
+                      Base URL
                       <input
-                        value={remoteConfig.username}
+                        value={localConfig.baseUrl}
                         onChange={(event) =>
-                          setRemoteConfig((prev) => ({ ...prev, username: event.target.value }))
+                          setLocalConfig((prev) => ({ ...prev, baseUrl: event.target.value }))
                         }
                       />
                     </label>
                     <label>
-                      Password
+                      API Key
                       <input
-                        type="password"
-                        value={remoteConfig.password}
+                        value={localConfig.apiKey}
                         onChange={(event) =>
-                          setRemoteConfig((prev) => ({ ...prev, password: event.target.value }))
+                          setLocalConfig((prev) => ({ ...prev, apiKey: event.target.value }))
                         }
                       />
                     </label>
-                  </>
-                )}
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={useProxyRemote}
-                    onChange={(event) => setUseProxyRemote(event.target.checked)}
-                  />
-                  Use proxy
-                </label>
-                {useProxyRemote && (
-                  <>
-                    <label>
-                      Proxy target
-                      <select
-                        value={proxyTargetRemote}
-                        onChange={(event) => setProxyTargetRemote(event.target.value)}
-                      >
-                        <option value="local">Local proxy URL</option>
-                        <option value="remote">Remote proxy URL</option>
-                      </select>
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={useProxyLocal}
+                        onChange={(event) => setUseProxyLocal(event.target.checked)}
+                      />
+                      Use proxy
                     </label>
-                    {proxyTargetRemote === "local" && (
+                    {useProxyLocal && (
                       <label>
                         Local proxy URL
                         <input
@@ -2786,34 +2996,173 @@ function App() {
                         />
                       </label>
                     )}
-                    {proxyTargetRemote === "remote" && (
+                  </div>
+                ) : (
+                  <div className="form-grid">
+                    <label>
+                      Base URL
+                      <input
+                        value={remoteConfig.baseUrl}
+                        onChange={(event) =>
+                          setRemoteConfig((prev) => ({ ...prev, baseUrl: event.target.value }))
+                        }
+                      />
+                    </label>
+                    <div className="muted">
+                      DMA port is set from the case selector below. Proxy requests now honor the
+                      selected port.
+                    </div>
+                    <label>
+                      Case
+                      <select
+                        value={remoteConfig.caseId}
+                        onChange={(event) => {
+                          const nextCase = event.target.value;
+                          const defaultPort = resolveCasePort(nextCase, remoteConfig.algoPort);
+                          setRemoteConfig((prev) => ({
+                            ...prev,
+                            caseId: nextCase,
+                            baseUrl: defaultPort ? updateUrlPort(prev.baseUrl, defaultPort) : prev.baseUrl,
+                            algoPort:
+                              nextCase === "algo-mm"
+                                ? prev.algoPort ?? DMA_CASES.find((item) => item.id === "algo-mm")?.ports?.[0]
+                                : prev.algoPort,
+                          }));
+                        }}
+                      >
+                        {DMA_CASES.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {remoteConfig.caseId === "algo-mm" && (
                       <label>
-                        Remote proxy URL
-                        <input
-                          value={cloudProxyUrl}
-                          onChange={(event) => setCloudProxyUrl(event.target.value)}
-                          placeholder="https://your-proxy.example.com"
-                        />
+                        Algo MM port
+                        <select
+                          value={remoteConfig.algoPort}
+                          onChange={(event) => {
+                            const port = Number(event.target.value);
+                            setRemoteConfig((prev) => ({
+                              ...prev,
+                              algoPort: port,
+                              baseUrl: updateUrlPort(prev.baseUrl, port),
+                            }));
+                          }}
+                        >
+                          {DMA_CASES.find((item) => item.id === "algo-mm")?.ports?.map((port) => (
+                            <option key={port} value={port}>
+                              {port}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                     )}
-                  </>
+                    <label>
+                      Auth mode
+                      <select
+                        value={remoteConfig.authMode}
+                        onChange={(event) =>
+                          setRemoteConfig((prev) => ({ ...prev, authMode: event.target.value }))
+                        }
+                      >
+                        <option value="header">Authorization header</option>
+                        <option value="basic">Username + password</option>
+                      </select>
+                    </label>
+                    {remoteConfig.authMode === "header" ? (
+                      <label>
+                        Authorization
+                        <input
+                          type="password"
+                          value={remoteConfig.authHeader}
+                          onChange={(event) =>
+                            setRemoteConfig((prev) => ({ ...prev, authHeader: event.target.value }))
+                          }
+                          placeholder="Basic XXXXXXXXXX"
+                        />
+                      </label>
+                    ) : (
+                      <>
+                        <label>
+                          Username
+                          <input
+                            value={remoteConfig.username}
+                            onChange={(event) =>
+                              setRemoteConfig((prev) => ({ ...prev, username: event.target.value }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          Password
+                          <input
+                            type="password"
+                            value={remoteConfig.password}
+                            onChange={(event) =>
+                              setRemoteConfig((prev) => ({ ...prev, password: event.target.value }))
+                            }
+                          />
+                        </label>
+                      </>
+                    )}
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={useProxyRemote}
+                        onChange={(event) => setUseProxyRemote(event.target.checked)}
+                      />
+                      Use proxy
+                    </label>
+                    {useProxyRemote && (
+                      <>
+                        <label>
+                          Proxy target
+                          <select
+                            value={proxyTargetRemote}
+                            onChange={(event) => setProxyTargetRemote(event.target.value)}
+                          >
+                            <option value="local">Local proxy URL</option>
+                            <option value="remote">Remote proxy URL</option>
+                          </select>
+                        </label>
+                        {proxyTargetRemote === "local" && (
+                          <label>
+                            Local proxy URL
+                            <input
+                              value={localProxyUrl}
+                              onChange={(event) => setLocalProxyUrl(event.target.value)}
+                              placeholder="http://localhost:3001"
+                            />
+                          </label>
+                        )}
+                        {proxyTargetRemote === "remote" && (
+                          <label>
+                            Remote proxy URL
+                            <input
+                              value={cloudProxyUrl}
+                              onChange={(event) => setCloudProxyUrl(event.target.value)}
+                              placeholder="https://your-proxy.example.com"
+                            />
+                          </label>
+                        )}
+                      </>
+                    )}
+                    <div className="muted">
+                      Proxy avoids CORS blocks. Local uses proxy.mjs/proxy.py.
+                    </div>
+                  </div>
                 )}
-                <div className="muted">
-                  Proxy avoids CORS blocks. Local uses proxy.mjs/proxy.py.
-                </div>
-              </div>
-            )}
 
-            <div className="button-row">
-              <button type="button" className="primary" onClick={connect} disabled={!canConnect}>
-                Connect
-              </button>
-              <button type="button" className="ghost" onClick={disconnect}>
-                Disconnect
-              </button>
-            </div>
-            {connectionError && <p className="error">{connectionError}</p>}
-            {proxyHint && <p className="error">{proxyHint}</p>}
+                <div className="button-row">
+                  <button type="button" className="primary" onClick={connect} disabled={!canConnect}>
+                    Connect
+                  </button>
+                </div>
+                {connectionError && <p className="error">{connectionError}</p>}
+                {proxyHint && <p className="error">{proxyHint}</p>}
+              </>
+            )}
           </section>
 
           <section className="card">
@@ -3086,160 +3435,229 @@ function App() {
             </div>
           </section>
 
-          <section className="card split">
-            <div className="split-panel">
-              <div className="card-title">Order Book</div>
-              <div className="book-table">
-                <div className="book-head wide">
-                  <span>Bid Qty</span>
-                  <span>Price</span>
-                  <span>Ask Qty</span>
-                </div>
-                {/* Manual scroll stays manual. No auto-centering hijinks. */}
-                <div className="book-scroll" ref={bookScrollRef}>
-                  {priceRows.map((row, index) => {
-                    const bidRatio = row.bidQty / maxVolume;
-                    const askRatio = row.askQty / maxVolume;
-                    const bidTone = getVolumeTone(bidRatio);
-                    const askTone = getVolumeTone(askRatio);
-                    const myOrders = ordersByPrice.get(row.key) || {};
-                    const side = row.price <= (bestBidPrice ?? midPrice) ? "BUY" : "SELL";
-                    return (
-                      <div
-                        key={`${row.price}-${index}`}
-                        className={`book-row wide ${row.isMid ? "mid" : ""} ${row.isSpread ? "spread" : ""}`}
-                        data-center={row.isCenter ? "true" : undefined}
-                        onClick={() => placeQuickOrder(side, row.price)}
-                      >
-                        <span
-                          className="book-cell bid"
-                        >
-                          <span
-                            className={`book-bar ${bidTone}`}
-                            style={{ width: `${Math.round(bidRatio * 100)}%` }}
-                          />
-                          {myOrders.buyCount ? (
-                            <span className="book-meta">
-                              <span className="book-chip">{formatQty(myOrders.buyCount)}x</span>
-                              <span className="book-chip">{formatQty(myOrders.buyQty)}</span>
-                            </span>
-                          ) : null}
-                          <span className="book-value">{formatQty(row.bidQty)}</span>
-                        </span>
-                        <span className={`price ${row.isMid ? "mid" : ""}`}>
-                          {row.price.toFixed(quotedDecimals)}
-                        </span>
-                        <span
-                          className="book-cell ask"
-                        >
-                          <span
-                            className={`book-bar ${askTone}`}
-                            style={{ width: `${Math.round(askRatio * 100)}%` }}
-                          />
-                          {myOrders.sellCount ? (
-                            <span className="book-meta">
-                              <span className="book-chip">{formatQty(myOrders.sellCount)}x</span>
-                              <span className="book-chip">{formatQty(myOrders.sellQty)}</span>
-                            </span>
-                          ) : null}
-                          <span className="book-value">{formatQty(row.askQty)}</span>
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+          <section className="card orderbook-shell">
+            <div className="orderbook-header">
+              <div>
+                <div className="card-title">Order Books</div>
+                <div className="muted">Book trader or ladder trader, with compact rows.</div>
               </div>
-            </div>
-            <div className="split-panel">
-              <div className="card-title chart-header">
-                <span>Candles</span>
+              <div className="orderbook-actions">
+                <div className="segmented segmented--compact">
+                  <button
+                    type="button"
+                    className={bookView === "book" ? "active" : ""}
+                    onClick={() => setBookView("book")}
+                  >
+                    Book Trader
+                  </button>
+                  <button
+                    type="button"
+                    className={bookView === "ladder" ? "active" : ""}
+                    onClick={() => setBookView("ladder")}
+                  >
+                    Ladder Trader
+                  </button>
+                </div>
                 <button
                   type="button"
-                  className="ghost"
-                  onClick={() => setShowChartSettings((prev) => !prev)}
+                  className="ghost small"
+                  onClick={addBookPanel}
                 >
-                  Chart Settings
+                  Add Book
                 </button>
               </div>
-              {showChartSettings && (
-                <div className="chart-settings">
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={showRangeSlider}
-                      onChange={(event) => setShowRangeSlider(event.target.checked)}
-                    />
-                    Enable range slider
-                  </label>
-                  <details className="indicator-menu">
-                    <summary>Indicators ({INDICATORS.length})</summary>
-                    <div className="indicator-list">
-                      {INDICATORS.map((indicator) => (
-                        <label key={indicator.id} className="indicator-row">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(indicatorState[indicator.id])}
-                            onChange={() =>
-                              setIndicatorState((prev) => ({
-                                ...prev,
-                                [indicator.id]: !prev[indicator.id],
-                              }))
-                            }
-                          />
-                          <span>{indicator.label}</span>
+            </div>
+            <div className={`orderbook-layout ${isMultiBook ? "multi" : "single"}`}>
+              <div className="orderbook-grid">
+                {bookStates.map(({ panel, state }) => {
+                  const panelOrders = state.ordersByPrice;
+                  return (
+                    <div key={panel.id} className={`book-panel ${bookView}`}>
+                      <div className="book-panel-header">
+                        <select
+                          value={panel.ticker}
+                          onChange={(event) => updateBookPanelTicker(panel.id, event.target.value)}
+                        >
+                          <option value="">Select</option>
+                          {securities.map((sec) => (
+                            <option key={sec.ticker} value={sec.ticker}>
+                              {sec.ticker}
+                            </option>
+                          ))}
+                        </select>
+                        {panel.id !== BOOK_PANEL_PRIMARY_ID && (
                           <button
                             type="button"
-                            className="indicator-info"
-                            aria-label={`About ${indicator.label}`}
-                            onClick={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              setIndicatorInfo(indicator);
-                            }}
+                            className="ghost small"
+                            onClick={() => removeBookPanel(panel.id)}
                           >
-                            i
+                            Remove
                           </button>
-                        </label>
-                      ))}
+                        )}
+                      </div>
+                      <div className={`book-table ${bookView}`}>
+                        <div className="book-head">
+                          <span>Bid</span>
+                          <span>Price</span>
+                          <span>Ask</span>
+                        </div>
+                        {/* Manual scroll stays manual. No auto-centering hijinks. */}
+                        <div
+                          className={`book-scroll ${bookView}`}
+                          ref={panel.id === BOOK_PANEL_PRIMARY_ID ? bookScrollRef : undefined}
+                        >
+                          {state.rows.map((row, index) => {
+                            const bidRatio = row.bidQty / state.maxVolume;
+                            const askRatio = row.askQty / state.maxVolume;
+                            const bidTone = getVolumeTone(bidRatio);
+                            const askTone = getVolumeTone(askRatio);
+                            const myOrders = panelOrders.get(row.key) || {};
+                            const hasOrders = myOrders.buyCount || myOrders.sellCount;
+                            const side =
+                              row.price <= (state.bestBidPrice ?? state.midPrice)
+                                ? "BUY"
+                                : "SELL";
+                            return (
+                              <div
+                                key={`${panel.id}-${row.price}-${index}`}
+                                className={`book-row ${bookView} ${row.isMid ? "mid" : ""} ${
+                                  row.isSpread ? "spread" : ""
+                                } ${row.pnlTone ? `pnl-${row.pnlTone}` : ""} ${
+                                  hasOrders ? "has-orders" : ""
+                                }`}
+                                data-center={row.isCenter ? "true" : undefined}
+                                onClick={() => placeQuickOrder(panel.ticker, side, row.price)}
+                              >
+                                {row.pnlTone && <span className="book-pnl" />}
+                                <span className="book-cell bid">
+                                  <span
+                                    className={`book-bar ${bidTone}`}
+                                    style={{ width: `${Math.round(bidRatio * 100)}%` }}
+                                  />
+                                  {myOrders.buyCount ? (
+                                    <span className="book-meta">
+                                      <span className="book-chip">{formatQty(myOrders.buyCount)}x</span>
+                                      <span className="book-chip">{formatQty(myOrders.buyQty)}</span>
+                                    </span>
+                                  ) : null}
+                                  <span className="book-value">{formatQty(row.bidQty)}</span>
+                                </span>
+                                <span className={`price ${row.isMid ? "mid" : ""}`}>
+                                  {row.price.toFixed(state.quotedDecimals)}
+                                </span>
+                                <span className="book-cell ask">
+                                  <span
+                                    className={`book-bar ${askTone}`}
+                                    style={{ width: `${Math.round(askRatio * 100)}%` }}
+                                  />
+                                  {myOrders.sellCount ? (
+                                    <span className="book-meta">
+                                      <span className="book-chip">{formatQty(myOrders.sellCount)}x</span>
+                                      <span className="book-chip">{formatQty(myOrders.sellQty)}</span>
+                                    </span>
+                                  ) : null}
+                                  <span className="book-value">{formatQty(row.askQty)}</span>
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
-                  </details>
+                  );
+                })}
+              </div>
+              <div className="orderbook-candles">
+                <div className="card-title chart-header">
+                  <span>Candles</span>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => setShowChartSettings((prev) => !prev)}
+                  >
+                    Chart Settings
+                  </button>
                 </div>
-              )}
-              {candles.length === 0 ? (
-                <div className="muted">No candle history yet.</div>
-              ) : (
-                <Plot
-                  data={chartData}
-                  layout={chartLayout}
-                  config={chartConfig}
-                  style={{ width: "100%", height: "420px" }}
-                  onRelayout={(ev) => {
-                    const next = {};
-                    if (ev["xaxis.autorange"] || ev["yaxis.autorange"]) {
-                      setChartView({});
-                      return;
-                    }
-                    if (ev["xaxis.range[0]"] && ev["xaxis.range[1]"]) {
-                      next.xaxis = {
-                        ...(chartView.xaxis || {}),
-                        range: [ev["xaxis.range[0]"], ev["xaxis.range[1]"]],
-                      };
-                    }
-                    if (ev["yaxis.range[0]"] && ev["yaxis.range[1]"]) {
-                      next.yaxis = {
-                        ...(chartView.yaxis || {}),
-                        range: [ev["yaxis.range[0]"], ev["yaxis.range[1]"]],
-                      };
-                    }
-                    if (Object.keys(next).length) {
-                      setChartView((prev) => ({
-                        ...prev,
-                        ...next,
-                      }));
-                    }
-                  }}
-                />
-              )}
+                {showChartSettings && (
+                  <div className="chart-settings">
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={showRangeSlider}
+                        onChange={(event) => setShowRangeSlider(event.target.checked)}
+                      />
+                      Enable range slider
+                    </label>
+                    <details className="indicator-menu">
+                      <summary>Indicators ({INDICATORS.length})</summary>
+                      <div className="indicator-list">
+                        {INDICATORS.map((indicator) => (
+                          <label key={indicator.id} className="indicator-row">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(indicatorState[indicator.id])}
+                              onChange={() =>
+                                setIndicatorState((prev) => ({
+                                  ...prev,
+                                  [indicator.id]: !prev[indicator.id],
+                                }))
+                              }
+                            />
+                            <span>{indicator.label}</span>
+                            <button
+                              type="button"
+                              className="indicator-info"
+                              aria-label={`About ${indicator.label}`}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setIndicatorInfo(indicator);
+                              }}
+                            >
+                              i
+                            </button>
+                          </label>
+                        ))}
+                      </div>
+                    </details>
+                  </div>
+                )}
+                {candles.length === 0 ? (
+                  <div className="muted">No candle history yet.</div>
+                ) : (
+                  <Plot
+                    data={chartData}
+                    layout={chartLayout}
+                    config={chartConfig}
+                    style={{ width: "100%", height: isMultiBook ? "320px" : "420px" }}
+                    onRelayout={(ev) => {
+                      const next = {};
+                      if (ev["xaxis.autorange"] || ev["yaxis.autorange"]) {
+                        setChartView({});
+                        return;
+                      }
+                      if (ev["xaxis.range[0]"] && ev["xaxis.range[1]"]) {
+                        next.xaxis = {
+                          ...(chartView.xaxis || {}),
+                          range: [ev["xaxis.range[0]"], ev["xaxis.range[1]"]],
+                        };
+                      }
+                      if (ev["yaxis.range[0]"] && ev["yaxis.range[1]"]) {
+                        next.yaxis = {
+                          ...(chartView.yaxis || {}),
+                          range: [ev["yaxis.range[0]"], ev["yaxis.range[1]"]],
+                        };
+                      }
+                      if (Object.keys(next).length) {
+                        setChartView((prev) => ({
+                          ...prev,
+                          ...next,
+                        }));
+                      }
+                    }}
+                  />
+                )}
+              </div>
             </div>
           </section>
 
@@ -3271,25 +3689,71 @@ function App() {
           <section className="card terminal">
             <div className="terminal-header">
               <span>Privod Johnny Terminal</span>
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => {
-                  if (terminalUnlocked) {
-                    setTerminalUnlocked(false);
-                    log("Terminal locked.");
-                  } else {
-                    setShowTerminalPrompt(true);
-                  }
-                }}
-              >
-                {terminalUnlocked ? "Lock" : "Unlock"}
-              </button>
+              <div className="terminal-actions">
+                <button type="button" className="ghost small" onClick={enableAllLogFilters}>
+                  All Logs
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    if (terminalUnlocked) {
+                      setTerminalUnlocked(false);
+                      log("Terminal locked.", "system");
+                    } else {
+                      setShowTerminalPrompt(true);
+                    }
+                  }}
+                >
+                  {terminalUnlocked ? "Lock" : "Unlock"}
+                </button>
+              </div>
+            </div>
+            <div className="terminal-metrics">
+              <div className="terminal-metrics-title">Endpoint response time</div>
+              {requestMetricRows.length ? (
+                requestMetricRows.map((row) => (
+                  <div key={row.key} className="terminal-metric-row">
+                    <span className="terminal-metric-endpoint">{row.key}</span>
+                    <span className="terminal-metric-stat">
+                      {Math.round(row.avgMs)}ms avg
+                    </span>
+                    <span className="terminal-metric-stat">
+                      {Math.round(row.lastMs)}ms last
+                    </span>
+                    <span className="terminal-metric-stat">{row.count}x</span>
+                  </div>
+                ))
+              ) : (
+                <div className="muted">No requests yet.</div>
+              )}
+            </div>
+            <div className="terminal-filters">
+              {LOG_CATEGORIES.map((category) => (
+                <button
+                  key={category.id}
+                  type="button"
+                  className={`terminal-filter ${
+                    logFilters.includes(category.id) ? "active" : ""
+                  }`}
+                  onClick={() => toggleLogFilter(category.id)}
+                >
+                  {category.label}
+                </button>
+              ))}
             </div>
             <div className={`terminal-body ${terminalUnlocked ? "" : "blurred"}`}>
               {terminalUnlocked ? (
-                terminalLines.length ? (
-                  terminalLines.map((line, index) => <div key={index}>{line}</div>)
+                filteredTerminalLines.length ? (
+                  filteredTerminalLines.map((line) => (
+                    <div key={line.id} className={`terminal-line terminal-line--${line.category}`}>
+                      <span className="terminal-stamp">{line.stamp}</span>
+                      <span className={`terminal-tag terminal-tag--${line.category}`}>
+                        {line.category}
+                      </span>
+                      <span className="terminal-message">{line.message}</span>
+                    </div>
+                  ))
                 ) : (
                   <div className="muted">No terminal activity yet.</div>
                 )
@@ -3332,7 +3796,7 @@ function App() {
                 onClick={() => {
                   setTerminalUnlocked(true);
                   setShowTerminalPrompt(false);
-                  log("Terminal unlocked.");
+                  log("Terminal unlocked.", "system");
                 }}
               >
                 Start Terminal
