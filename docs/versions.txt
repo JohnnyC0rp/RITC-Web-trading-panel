@@ -1,3 +1,10 @@
+2026-02-06T11:52:02Z
+🔌 Configurable local proxy URL for Remote connections.
+📚 Order book polling syncs with open orders with adaptive backoff and faster cadence.
+🧭 Order book keeps scroll position and recenters only on connect or case switch.
+📊 Trader/portfolio summary added, plus faster TAS trade polling.
+📱 Mobile layout spacing and stacking improved.
+==================
 2026-02-03T18:40:06Z
 🎨 Small redesign and layout polish across the UI.
 🛠️ Bug fixes and general performance improvements.
