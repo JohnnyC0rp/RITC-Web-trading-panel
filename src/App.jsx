@@ -41,7 +41,7 @@ const POLL_INTERVALS_MS = {
   orders: 333,
   trader: 1000,
   tas: 100,
-  fills: 1000,
+  fills: 250,
   tenders: 500,
   news: 500,
 };
@@ -52,6 +52,7 @@ const MAX_PERF_POINTS = 80;
 const FAST_POLL_ENDPOINTS = [
   { key: "GET /securities/book", label: "Order Book", pollMs: null },
   { key: "GET /securities/tas", label: "Time & Sales", pollMs: POLL_INTERVALS_MS.tas },
+  { key: "GET /fills", label: "Fills", pollMs: POLL_INTERVALS_MS.fills },
   { key: "GET /orders", label: "Open Orders", pollMs: POLL_INTERVALS_MS.orders },
   { key: "GET /case", label: "Case", pollMs: POLL_INTERVALS_MS.case },
   { key: "GET /news", label: "News", pollMs: POLL_INTERVALS_MS.news },
@@ -828,8 +829,18 @@ function App() {
   const [tenders, setTenders] = useState([]);
   const [tenderPrices, setTenderPrices] = useState({});
   const bookScrollRef = useRef(null);
-  const bookCenterRef = useRef({ connectAt: null, caseKey: null, tick1Period: null });
-  const bookAnchorRef = useRef({ connectAt: null, caseKey: null, tick1Period: null });
+  const bookCenterRef = useRef({
+    connectAt: null,
+    caseKey: null,
+    tick1Period: null,
+    idleAt: null,
+  });
+  const bookAnchorRef = useRef({
+    connectAt: null,
+    caseKey: null,
+    tick1Period: null,
+    idleAt: null,
+  });
   const openOrdersRef = useRef([]);
   const cancelledOrdersRef = useRef(new Map());
   const lastCaseRef = useRef({ tick: null, period: null });
@@ -1335,8 +1346,8 @@ function App() {
     setLastConnectAt(0);
     setLastBookUpdateAt(0);
     lastCaseRef.current = { tick: null, period: null };
-    bookCenterRef.current = { connectAt: null, caseKey: null, tick1Period: null };
-    bookAnchorRef.current = { connectAt: null, caseKey: null, tick1Period: null };
+    bookCenterRef.current = { connectAt: null, caseKey: null, tick1Period: null, idleAt: null };
+    bookAnchorRef.current = { connectAt: null, caseKey: null, tick1Period: null, idleAt: null };
     setBookAnchors({});
     log("Disconnected", "system");
   };
@@ -2055,21 +2066,33 @@ function App() {
     }
   };
 
-  const placeQuickOrder = async (ticker, side, price) => {
+  const bulkCancelOrders = async () => {
+    if (!config) return;
+    try {
+      await apiPost("/commands/cancel", { all: 1 });
+      log("Bulk cancel sent.", "order");
+      notify("Bulk cancel sent.", "warning");
+    } catch (error) {
+      log(`Bulk cancel error: ${error?.data?.message || error.message}`, "error");
+    }
+  };
+
+  const placeQuickOrder = async (ticker, side, price, isMarket = false) => {
     if (!config || !ticker) return;
     const quantity = parseInt(orderDraft.quantity, 10) || 1;
     const roundedPrice = Number(price);
     try {
       const payload = {
         ticker,
-        type: "LIMIT",
+        type: isMarket ? "MARKET" : "LIMIT",
         quantity,
         action: side,
-        price: roundedPrice,
+        ...(isMarket ? {} : { price: roundedPrice }),
       };
       await apiPost("/orders", payload);
-      log(`Quick order: ${side} ${quantity} ${ticker} @ ${roundedPrice}`, "order");
-      notify(`Order placed: ${side} ${quantity} ${ticker} @ ${roundedPrice}`, "info");
+      const priceLabel = isMarket ? "MKT" : roundedPrice;
+      log(`Quick order: ${side} ${quantity} ${ticker} @ ${priceLabel}`, "order");
+      notify(`Order placed: ${side} ${quantity} ${ticker} @ ${priceLabel}`, "info");
     } catch (error) {
       log(`Quick order error: ${error?.data?.message || error.message}`, "error");
     }
@@ -2130,6 +2153,9 @@ function App() {
   }, []);
 
   const positionMap = useMemo(() => buildPositionsFromFills(fills), [fills]);
+
+  const isCaseStopped =
+    connectionStatus === "Connected" && caseInfo?.status === "STOPPED";
 
   const ordersByTickerPrice = useMemo(() => {
     const map = new Map();
@@ -2215,7 +2241,7 @@ function App() {
       const spreadCenterTick = hasSpread
         ? toStepTick((bestBidNumber + bestAskNumber) / 2, priceStep)
         : liveMidTick;
-      const position = positionMap.get(ticker) || null;
+      const position = isCaseStopped ? null : positionMap.get(ticker) || null;
       const positionQty = Number(position?.qty ?? 0);
       const entryPrice = Number(position?.avg);
       const hasPosition =
@@ -2282,6 +2308,7 @@ function App() {
       bookAnchors,
       booksByTicker,
       decimalsByTicker,
+      isCaseStopped,
       ordersByTickerPrice,
       positionMap,
       securityByTicker,
@@ -2353,6 +2380,16 @@ function App() {
       shouldReset = true;
     }
 
+    if (isCaseStopped) {
+      const idleKey = caseKey || "idle";
+      if (anchorState.idleAt !== idleKey) {
+        anchorState.idleAt = idleKey;
+        shouldReset = true;
+      }
+    } else if (anchorState.idleAt) {
+      anchorState.idleAt = null;
+    }
+
     if (!shouldReset) return;
 
     setBookAnchors(() => {
@@ -2375,6 +2412,7 @@ function App() {
     caseInfo?.period,
     caseInfo?.tick,
     connectionStatus,
+    isCaseStopped,
     lastConnectAt,
   ]);
 
@@ -2434,6 +2472,17 @@ function App() {
       // Align at the start of each case period, then hands off the scroll wheel. 🎯
       if (!centerOrderBook()) return;
       bookCenterState.tick1Period = currPeriod;
+      return;
+    }
+
+    if (isCaseStopped) {
+      const idleKey = caseKey || "idle";
+      if (bookCenterState.idleAt !== idleKey) {
+        if (!centerOrderBook()) return;
+        bookCenterState.idleAt = idleKey;
+      }
+    } else if (bookCenterState.idleAt) {
+      bookCenterState.idleAt = null;
     }
   }, [
     caseInfo?.case,
@@ -2443,11 +2492,60 @@ function App() {
     caseInfo?.tick,
     centerOrderBook,
     connectionStatus,
+    isCaseStopped,
     lastConnectAt,
     priceRows.length,
   ]);
 
   // Order book scroll stays where the trader puts it. Autoscroll was cute, not useful.
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.isComposing) return;
+      const target = event.target;
+      const tag = target?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select" || target?.isContentEditable) {
+        return;
+      }
+      // Hotkeys: because mice deserve coffee breaks too. ☕️
+      if (event.code === "Space") {
+        event.preventDefault();
+        bulkCancelOrders();
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "b") {
+        setBookView("book");
+        return;
+      }
+      if (key === "l") {
+        setBookView("ladder");
+        return;
+      }
+      if (key === "r") {
+        centerOrderBook();
+        return;
+      }
+      if (key === "a") {
+        addBookPanel();
+        return;
+      }
+      if (event.key === "Escape") {
+        setShowTerminalPrompt(false);
+        setShowUpdatePrompt(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    addBookPanel,
+    bulkCancelOrders,
+    centerOrderBook,
+    setBookView,
+    setShowTerminalPrompt,
+    setShowUpdatePrompt,
+  ]);
 
   const candles = useMemo(() => aggregateCandles(history, 5), [history]);
 
@@ -2759,8 +2857,8 @@ function App() {
   const pnlLayout = {
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: chartPlotBg,
-    margin: { l: 40, r: 16, t: 14, b: 28 },
-    height: 230,
+    margin: { l: 36, r: 12, t: 12, b: 22 },
+    height: 170,
     font: { color: chartTextColor },
     xaxis: { showgrid: false, tickfont: { size: 9, color: chartTextColor } },
     yaxis: { tickfont: { size: 10, color: chartTextColor }, zeroline: true, gridcolor: chartGridColor },
@@ -2893,7 +2991,6 @@ function App() {
       : remoteConfig.authMode === "header"
         ? remoteConfig.authHeader
         : remoteConfig.username && remoteConfig.password;
-  const isCaseStopped = connectionStatus === "Connected" && caseInfo?.status === "STOPPED";
   // Status copy tweak: show "idling" without sounding alarmist (yellow is enough drama). 😅
   const statusLabel = isCaseStopped ? "Connected, idling" : connectionStatus;
   const statusClass = isCaseStopped
@@ -3474,34 +3571,6 @@ function App() {
 
         <main className="main">
           <section className="card" style={{ marginBottom: "20px" }}>
-            <div className="card-title">Market Snapshot</div>
-            <div className="snapshot-grid">
-              <label>
-                Active Ticker
-                <select value={selectedTicker} onChange={(event) => setSelectedTicker(event.target.value)}>
-                  {securities.map((sec) => (
-                    <option key={sec.ticker} value={sec.ticker}>
-                      {sec.ticker}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="metric">
-                <span>Last</span>
-                <strong>{formatNumber(lastPrice)}</strong>
-              </div>
-              <div className="metric">
-                <span>Bid</span>
-                <strong>{formatNumber(bidPrice)}</strong>
-              </div>
-              <div className="metric">
-                <span>Ask</span>
-                <strong>{formatNumber(askPrice)}</strong>
-              </div>
-            </div>
-          </section>
-
-          <section className="card" style={{ marginBottom: "20px" }}>
             <div className="card-title">PnL Tracker</div>
             <div className="portfolio-row">
               <div className="portfolio-meta">
@@ -3638,10 +3707,12 @@ function App() {
                         <div className="book-head">
                           {bookView === "book" ? (
                             <>
-                              <span>Bid Qty</span>
-                              <span>Bid Px</span>
-                              <span>Ask Px</span>
-                              <span>Ask Qty</span>
+                              <span>Trader</span>
+                              <span>Volume</span>
+                              <span>Price</span>
+                              <span>Price</span>
+                              <span>Volume</span>
+                              <span>Trader</span>
                             </>
                           ) : (
                             <>
@@ -3663,6 +3734,8 @@ function App() {
                             const askTone = getVolumeTone(askRatio);
                             const myOrders = panelOrders.get(row.key) || {};
                             const hasOrders = myOrders.buyCount || myOrders.sellCount;
+                            const bidTrader = myOrders.buyCount ? "ME" : "ANON";
+                            const askTrader = myOrders.sellCount ? "ME" : "ANON";
                             const side =
                               row.price <= (state.bestBidPrice ?? state.midPrice)
                                 ? "BUY"
@@ -3680,32 +3753,43 @@ function App() {
                                   row.isSpread ? "spread" : ""
                                 } ${hasOrders ? "has-orders" : ""}`}
                                 data-center={row.isCenter ? "true" : undefined}
-                                onClick={() => placeQuickOrder(panel.ticker, side, row.price)}
+                                onClick={(event) =>
+                                  placeQuickOrder(panel.ticker, side, row.price, event.shiftKey)
+                                }
                               >
-                                <span
-                                  className={`book-cell bid ${
-                                    row.pnlTone && row.pnlSide === "long"
-                                      ? `pnl-${row.pnlTone}`
-                                      : ""
-                                  }`}
-                                >
-                                  {row.pnlTone && row.pnlSide === "long" && (
-                                    <span className="book-pnl" />
-                                  )}
-                                  <span
-                                    className={`book-bar ${bidTone}`}
-                                    style={{ width: `${Math.round(bidRatio * 100)}%` }}
-                                  />
-                                  {myOrders.buyCount ? (
-                                    <span className="book-meta">
-                                      <span className="book-chip">{formatQty(myOrders.buyCount)}x</span>
-                                      <span className="book-chip">{formatQty(myOrders.buyQty)}</span>
-                                    </span>
-                                  ) : null}
-                                  <span className="book-value">{formatQty(row.bidQty)}</span>
-                                </span>
                                 {bookView === "book" ? (
                                   <>
+                                    <span
+                                      className={`book-cell trader ${myOrders.buyCount ? "mine" : ""}`}
+                                    >
+                                      {bidTrader}
+                                    </span>
+                                    <span
+                                      className={`book-cell volume bid ${
+                                        row.pnlTone && row.pnlSide === "long"
+                                          ? `pnl-${row.pnlTone}`
+                                          : ""
+                                      }`}
+                                    >
+                                      {row.pnlTone && row.pnlSide === "long" && (
+                                        <span className="book-pnl" />
+                                      )}
+                                      <span
+                                        className={`book-bar ${bidTone}`}
+                                        style={{ width: `${Math.round(bidRatio * 100)}%` }}
+                                      />
+                                      {myOrders.buyCount ? (
+                                        <span className="book-meta">
+                                          <span className="book-chip">
+                                            {formatQty(myOrders.buyCount)}x
+                                          </span>
+                                          <span className="book-chip">
+                                            {formatQty(myOrders.buyQty)}
+                                          </span>
+                                        </span>
+                                      ) : null}
+                                      <span className="book-value">{formatQty(row.bidQty)}</span>
+                                    </span>
                                     <span
                                       className={`price bid-price ${row.isMid ? "mid" : ""} ${
                                         row.isEntry && row.pnlSide === "long" ? "entry" : ""
@@ -3730,43 +3814,106 @@ function App() {
                                       )}
                                       {row.price.toFixed(state.quotedDecimals)}
                                     </span>
+                                    <span
+                                      className={`book-cell volume ask ${
+                                        row.pnlTone && row.pnlSide === "short"
+                                          ? `pnl-${row.pnlTone}`
+                                          : ""
+                                      }`}
+                                    >
+                                      {row.pnlTone && row.pnlSide === "short" && (
+                                        <span className="book-pnl" />
+                                      )}
+                                      <span
+                                        className={`book-bar ${askTone}`}
+                                        style={{ width: `${Math.round(askRatio * 100)}%` }}
+                                      />
+                                      {myOrders.sellCount ? (
+                                        <span className="book-meta">
+                                          <span className="book-chip">
+                                            {formatQty(myOrders.sellCount)}x
+                                          </span>
+                                          <span className="book-chip">
+                                            {formatQty(myOrders.sellQty)}
+                                          </span>
+                                        </span>
+                                      ) : null}
+                                      <span className="book-value">{formatQty(row.askQty)}</span>
+                                    </span>
+                                    <span
+                                      className={`book-cell trader ${myOrders.sellCount ? "mine" : ""}`}
+                                    >
+                                      {askTrader}
+                                    </span>
                                   </>
                                 ) : (
-                                  <span
-                                    className={`price ${row.isMid ? "mid" : ""} ${
-                                      row.isEntry ? "entry" : ""
-                                    }`}
-                                  >
-                                    {row.isEntry && entryArrow && (
-                                      <span className={`book-entry ${row.entryDirection}`}>
-                                        {entryArrow}
-                                      </span>
-                                    )}
-                                    {row.price.toFixed(state.quotedDecimals)}
-                                  </span>
-                                )}
-                                <span
-                                  className={`book-cell ask ${
-                                    row.pnlTone && row.pnlSide === "short"
-                                      ? `pnl-${row.pnlTone}`
-                                      : ""
-                                  }`}
-                                >
-                                  {row.pnlTone && row.pnlSide === "short" && (
-                                    <span className="book-pnl" />
-                                  )}
-                                  <span
-                                    className={`book-bar ${askTone}`}
-                                    style={{ width: `${Math.round(askRatio * 100)}%` }}
-                                  />
-                                  {myOrders.sellCount ? (
-                                    <span className="book-meta">
-                                      <span className="book-chip">{formatQty(myOrders.sellCount)}x</span>
-                                      <span className="book-chip">{formatQty(myOrders.sellQty)}</span>
+                                  <>
+                                    <span
+                                      className={`book-cell bid ${
+                                        row.pnlTone && row.pnlSide === "long"
+                                          ? `pnl-${row.pnlTone}`
+                                          : ""
+                                      }`}
+                                    >
+                                      {row.pnlTone && row.pnlSide === "long" && (
+                                        <span className="book-pnl" />
+                                      )}
+                                      <span
+                                        className={`book-bar ${bidTone}`}
+                                        style={{ width: `${Math.round(bidRatio * 100)}%` }}
+                                      />
+                                      {myOrders.buyCount ? (
+                                        <span className="book-meta">
+                                          <span className="book-chip">
+                                            {formatQty(myOrders.buyCount)}x
+                                          </span>
+                                          <span className="book-chip">
+                                            {formatQty(myOrders.buyQty)}
+                                          </span>
+                                        </span>
+                                      ) : null}
+                                      <span className="book-value">{formatQty(row.bidQty)}</span>
                                     </span>
-                                  ) : null}
-                                  <span className="book-value">{formatQty(row.askQty)}</span>
-                                </span>
+                                    <span
+                                      className={`price ${row.isMid ? "mid" : ""} ${
+                                        row.isEntry ? "entry" : ""
+                                      }`}
+                                    >
+                                      {row.isEntry && entryArrow && (
+                                        <span className={`book-entry ${row.entryDirection}`}>
+                                          {entryArrow}
+                                        </span>
+                                      )}
+                                      {row.price.toFixed(state.quotedDecimals)}
+                                    </span>
+                                    <span
+                                      className={`book-cell ask ${
+                                        row.pnlTone && row.pnlSide === "short"
+                                          ? `pnl-${row.pnlTone}`
+                                          : ""
+                                      }`}
+                                    >
+                                      {row.pnlTone && row.pnlSide === "short" && (
+                                        <span className="book-pnl" />
+                                      )}
+                                      <span
+                                        className={`book-bar ${askTone}`}
+                                        style={{ width: `${Math.round(askRatio * 100)}%` }}
+                                      />
+                                      {myOrders.sellCount ? (
+                                        <span className="book-meta">
+                                          <span className="book-chip">
+                                            {formatQty(myOrders.sellCount)}x
+                                          </span>
+                                          <span className="book-chip">
+                                            {formatQty(myOrders.sellQty)}
+                                          </span>
+                                        </span>
+                                      ) : null}
+                                      <span className="book-value">{formatQty(row.askQty)}</span>
+                                    </span>
+                                  </>
+                                )}
                               </div>
                             );
                           })}
@@ -3944,7 +4091,7 @@ function App() {
               )}
             </div>
             {perfRows.length ? (
-              <details className="terminal-perf">
+              <details className="terminal-perf" open>
                 <summary>Fast polling performance</summary>
                 <div className="terminal-perf-grid">
                   {perfRows.map((row) => {
@@ -4028,6 +4175,37 @@ function App() {
             securities={securities}
             connected={Boolean(config)}
           />
+
+          <section className="card" style={{ marginBottom: "20px" }}>
+            <div className="card-title">Market Snapshot</div>
+            <div className="snapshot-grid">
+              <label>
+                Active Ticker
+                <select
+                  value={selectedTicker}
+                  onChange={(event) => setSelectedTicker(event.target.value)}
+                >
+                  {securities.map((sec) => (
+                    <option key={sec.ticker} value={sec.ticker}>
+                      {sec.ticker}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="metric">
+                <span>Last</span>
+                <strong>{formatNumber(lastPrice)}</strong>
+              </div>
+              <div className="metric">
+                <span>Bid</span>
+                <strong>{formatNumber(bidPrice)}</strong>
+              </div>
+              <div className="metric">
+                <span>Ask</span>
+                <strong>{formatNumber(askPrice)}</strong>
+              </div>
+            </div>
+          </section>
         </main>
       </div>
 

@@ -336,26 +336,26 @@
 .pnl-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 
 .portfolio-row {
   display: grid;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .portfolio-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px;
 }
 
 .portfolio-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 
@@ -378,7 +378,7 @@
 .pnl-charts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 8px;
 }
 
 .tick-bar {
@@ -827,19 +827,15 @@ button.full {
   text-align: center;
 }
 
-.book-table.book .book-head span:first-child {
-  text-align: right;
-}
-
-.book-table.book .book-head span:nth-child(2) {
-  text-align: right;
-}
-
+.book-table.book .book-head span:nth-child(1),
+.book-table.book .book-head span:nth-child(2),
 .book-table.book .book-head span:nth-child(3) {
-  text-align: left;
+  text-align: right;
 }
 
-.book-table.book .book-head span:last-child {
+.book-table.book .book-head span:nth-child(4),
+.book-table.book .book-head span:nth-child(5),
+.book-table.book .book-head span:nth-child(6) {
   text-align: left;
 }
 
@@ -920,6 +916,20 @@ button.full {
   background: rgba(15, 23, 42, 0.03);
   overflow: hidden;
   font-variant-numeric: tabular-nums;
+}
+
+.book-cell.trader {
+  justify-content: center;
+  text-transform: uppercase;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  background: transparent;
+  color: #64748b;
+}
+
+.book-cell.trader.mine {
+  color: #0ea5e9;
+  font-weight: 700;
 }
 
 .book-cell.bid,
@@ -1025,7 +1035,7 @@ button.full {
 
 .book-table.book .book-head,
 .book-table.book .book-row {
-  grid-template-columns: 1.1fr 0.7fr 0.7fr 1.1fr;
+  grid-template-columns: 0.75fr 1.1fr 0.75fr 0.75fr 1.1fr 0.75fr;
 }
 
 .book-table.ladder .book-cell {
@@ -1034,6 +1044,14 @@ button.full {
 
 .book-table.ladder .book-bar {
   opacity: 0.45;
+}
+
+.book-table.book .book-cell.volume {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.book-table.book .book-bar {
+  opacity: 0.35;
 }
 
 .book-row.has-orders {
