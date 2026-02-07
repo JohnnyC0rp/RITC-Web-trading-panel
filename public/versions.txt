@@ -1,3 +1,13 @@
+2026-02-07T17:39:10Z
+🔢 Version badge now shows major updates + commit minor.
+📉 Order book columns tightened to free space for multi-book and charts.
+📊 Tick progress bar now fills with gradient even at low ticks.
+🎧 Distinct sounds for market/limit placed vs filled; order toasts removed.
+🧊 Order book stays anchored without auto recenters under the cursor.
+🧾 PnL + open orders/positions tightened for the sidebar.
+🔌 Connection card wrapping fixed so Disconnect stays aligned.
+📰 News strip widened for a longer left sweep.
+==================
 2026-02-07T13:59:55Z
 🧭 Order books now lead the main stack with PnL and positions underneath.
 🖱️ Left/right click trading logic updated for limit vs market with spread ignored.

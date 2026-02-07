@@ -63,6 +63,8 @@ const FAST_POLL_KEYS = new Set(FAST_POLL_ENDPOINTS.map((endpoint) => endpoint.ke
 const BOOK_DEPTH_LIMIT = 1000;
 const BOOK_POLL_MAX_MS = 1000;
 const BOOK_POLL_BACKOFF_MS = 100;
+const BOOK_ROW_HEIGHT_PX = 20;
+const BOOK_EDGE_BUFFER_TICKS = 10;
 const CANDLE_BUCKET = 5;
 
 const INDICATORS = [
@@ -791,6 +793,7 @@ function App() {
   const [selectedTicker, setSelectedTicker] = useState("");
   const [booksByTicker, setBooksByTicker] = useState({});
   const [bookAnchors, setBookAnchors] = useState({});
+  const [bookExtraRows, setBookExtraRows] = useState({});
   const [history, setHistory] = useState([]);
   const [historyEpoch, setHistoryEpoch] = useState(0);
   const [orders, setOrders] = useState([]);
@@ -812,6 +815,7 @@ function App() {
   const [perfSeries, setPerfSeries] = useState({});
   const [showUpdatePrompt, setShowUpdatePrompt] = useState(false);
   const [updatePayload, setUpdatePayload] = useState(null);
+  const [versionMajor, setVersionMajor] = useState(0);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [lastBookUpdateAt, setLastBookUpdateAt] = useState(0);
   const [lastConnectAt, setLastConnectAt] = useState(0);
@@ -836,6 +840,10 @@ function App() {
   });
   const openOrdersRef = useRef([]);
   const cancelledOrdersRef = useRef(new Map());
+  const orderTypeByIdRef = useRef(new Map());
+  const pendingPlacementsRef = useRef([]);
+  const seenFillIdsRef = useRef(new Set());
+  const filledOrderIdsRef = useRef(new Set());
   const lastCaseRef = useRef({ tick: null, period: null });
   const tickAlertRef = useRef({ period: null, fired: new Set() });
   const tasAfterRef = useRef(null);
@@ -850,6 +858,7 @@ function App() {
   const newsSinceRef = useRef(null);
   const tenderIdsRef = useRef(new Set());
   const hadStaleRef = useRef(false);
+  const bookExtraRowsRef = useRef({});
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
   const [proxyTargetRemote, setProxyTargetRemote] = useState("remote");
@@ -891,7 +900,9 @@ function App() {
         if (!response.ok) return;
         const raw = await response.text();
         const updates = parseVersionHistory(raw);
-        if (!updates.length || !alive) return;
+        if (!alive) return;
+        setVersionMajor(updates.length);
+        if (!updates.length) return;
         const latest = updates[0];
         let seenStamp = null;
         try {
@@ -1037,6 +1048,10 @@ function App() {
         tender: { freq: 980, type: "triangle", gain: 0.06, duration: 0.14 },
         alert: { freq: 880, type: "square", gain: 0.07, duration: 0.18 },
         news: { freq: 740, type: "sawtooth", gain: 0.05, duration: 0.2 },
+        limitPlaced: { freq: 640, type: "triangle", gain: 0.05, duration: 0.1 },
+        limitFilled: { freq: 760, type: "triangle", gain: 0.06, duration: 0.14 },
+        marketPlaced: { freq: 540, type: "square", gain: 0.05, duration: 0.1 },
+        marketFilled: { freq: 680, type: "square", gain: 0.06, duration: 0.14 },
         tickShort: { freq: 620, type: "sine", gain: 0.05, duration: 0.06 },
         tickMid: { freq: 680, type: "sine", gain: 0.05, duration: 0.1 },
         tickLong: { freq: 720, type: "sine", gain: 0.05, duration: 0.28 },
@@ -1327,11 +1342,17 @@ function App() {
     setBooksByTicker({});
     setHistory([]);
     setOrders([]);
+    setBookExtraRows({});
+    bookExtraRowsRef.current = {};
     setRealizedSeries([]);
     setUnrealizedSeries([]);
     setFills([]);
     setTasTrades([]);
     tasAfterRef.current = null;
+    orderTypeByIdRef.current = new Map();
+    pendingPlacementsRef.current = [];
+    seenFillIdsRef.current = new Set();
+    filledOrderIdsRef.current = new Set();
     setLastConnectAt(0);
     setLastBookUpdateAt(0);
     lastCaseRef.current = { tick: null, period: null };
@@ -1461,6 +1482,74 @@ function App() {
       clearInterval(id);
     };
   }, [apiGet, config, log, maybeSuggestProxy]);
+
+  useEffect(() => {
+    if (!fills.length) return;
+    const seen = seenFillIdsRef.current;
+    // First load: mark fills as seen so we don't play the welcome symphony.
+    if (seen.size === 0) {
+      fills.forEach((fill) => {
+        const fillKey =
+          fill.order_id ??
+          fill.id ??
+          `${fill.ticker}-${fill.tick}-${fill.vwap ?? fill.price}-${fill.action}`;
+        seen.add(String(fillKey));
+      });
+      return;
+    }
+    const now = Date.now();
+    const freshFills = [];
+    fills.forEach((fill) => {
+      const fillKey =
+        fill.order_id ??
+        fill.id ??
+        `${fill.ticker}-${fill.tick}-${fill.vwap ?? fill.price}-${fill.action}`;
+      const key = String(fillKey);
+      if (seen.has(key)) return;
+      seen.add(key);
+      freshFills.push(fill);
+    });
+    if (!freshFills.length) return;
+    pendingPlacementsRef.current = pendingPlacementsRef.current.filter(
+      (entry) => now - entry.placedAt < 15000
+    );
+    freshFills.forEach((fill) => {
+      const orderId = fill.order_id ?? fill.id ?? null;
+      if (orderId != null && filledOrderIdsRef.current.has(orderId)) {
+        orderTypeByIdRef.current.delete(orderId);
+        return;
+      }
+      let kind = null;
+      const rawType = String(fill.order_type ?? fill.type ?? "").toUpperCase();
+      if (rawType === "MARKET") kind = "market";
+      if (rawType === "LIMIT") kind = "limit";
+      if (!kind && orderId != null) {
+        kind = orderTypeByIdRef.current.get(orderId) || null;
+      }
+      if (!kind) {
+        const qty = Number(fill.quantity_filled ?? fill.quantity ?? fill.qty ?? 0);
+        const matchIndex = pendingPlacementsRef.current.findIndex((entry) => {
+          if (entry.ticker !== fill.ticker) return false;
+          if (entry.side !== fill.action) return false;
+          if (Number.isFinite(qty) && Number(entry.qty) !== qty) return false;
+          return now - entry.placedAt < 10000;
+        });
+        if (matchIndex >= 0) {
+          kind = pendingPlacementsRef.current[matchIndex].kind;
+          pendingPlacementsRef.current.splice(matchIndex, 1);
+        }
+      }
+      if (kind === "market") {
+        playSound("marketFilled");
+      } else if (kind === "limit") {
+        playSound("limitFilled");
+      }
+      if (orderId != null) {
+        orderTypeByIdRef.current.delete(orderId);
+        filledOrderIdsRef.current.add(orderId);
+      }
+    });
+  }, [fills, playSound]);
 
   useEffect(() => {
     tasAfterRef.current = null;
@@ -1617,6 +1706,8 @@ function App() {
       setUnrealizedSeries([]);
       setFills([]);
       setTasTrades([]);
+      setBookExtraRows({});
+      bookExtraRowsRef.current = {};
       tasAfterRef.current = null;
       // Fresh period, fresh candles — like a reset button, but friendlier. ✨
       setHistoryEpoch((value) => value + 1);
@@ -1649,7 +1740,7 @@ function App() {
       stop = true;
       clearInterval(id);
     };
-  }, [apiGet, config, log]);
+  }, [apiGet, config, log, maybeSuggestProxy]);
 
   useEffect(() => {
     if (!config) return undefined;
@@ -1823,10 +1914,17 @@ function App() {
             if (!nextMap.has(orderId)) {
               const cancelledAt = cancelledOrdersRef.current.get(orderId);
               if (!cancelledAt || Date.now() - cancelledAt > 8000) {
-                const qty = order.quantity ?? order.qty ?? "";
-                notify(`Order filled: ${order.ticker} ${qty} @ ${order.price}`, "success");
+                if (!filledOrderIdsRef.current.has(orderId)) {
+                  const kind = orderTypeByIdRef.current.get(orderId) || "limit";
+                  playSound(kind === "market" ? "marketFilled" : "limitFilled");
+                  filledOrderIdsRef.current.add(orderId);
+                }
               }
               cancelledOrdersRef.current.delete(orderId);
+              orderTypeByIdRef.current.delete(orderId);
+              pendingPlacementsRef.current = pendingPlacementsRef.current.filter(
+                (entry) => entry.orderId !== orderId
+              );
             }
           });
           openOrdersRef.current = nextOrders;
@@ -1850,7 +1948,7 @@ function App() {
       stop = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [apiGet, config, log, maybeSuggestProxy, notify]);
+  }, [apiGet, config, log, maybeSuggestProxy, playSound]);
 
   useEffect(() => {
     if (!config) return undefined;
@@ -1934,7 +2032,7 @@ function App() {
       stop = true;
       clearInterval(id);
     };
-  }, [apiGet, config, log]);
+  }, [apiGet, config, log, playSound]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -1977,7 +2075,16 @@ function App() {
     return () => {
       stop = true;
     };
-  }, [apiGet, caseInfo?.tick, caseInfo?.ticks_per_period, config, historyEpoch, log, selectedTicker]);
+  }, [
+    apiGet,
+    caseInfo?.tick,
+    caseInfo?.ticks_per_period,
+    config,
+    historyEpoch,
+    log,
+    maybeSuggestProxy,
+    selectedTicker,
+  ]);
 
   const handleCancel = async (orderId) => {
     if (!config) return;
@@ -2013,10 +2120,19 @@ function App() {
         action: side,
         ...(isMarket ? {} : { price: roundedPrice }),
       };
-      await apiPost("/orders", payload);
+      const response = await apiPost("/orders", payload);
+      const orderId = response?.order_id ?? response?.id ?? null;
+      const kind = isMarket ? "market" : "limit";
+      if (orderId != null) {
+        orderTypeByIdRef.current.set(orderId, kind);
+      }
+      pendingPlacementsRef.current = [
+        { orderId, kind, ticker, side, qty: quantity, placedAt: Date.now() },
+        ...pendingPlacementsRef.current,
+      ].slice(0, 40);
       const priceLabel = isMarket ? "MKT" : roundedPrice;
       log(`Quick order: ${side} ${quantity} ${ticker} @ ${priceLabel}`, "order");
-      notify(`Order placed: ${side} ${quantity} ${ticker} @ ${priceLabel}`, "info");
+      playSound(kind === "market" ? "marketPlaced" : "limitPlaced");
     } catch (error) {
       log(`Quick order error: ${error?.data?.message || error.message}`, "error");
     }
@@ -2107,7 +2223,95 @@ function App() {
   }, [decimalsByTicker, orders]);
 
   const baseRowCount = 80;
-  const bookEdgePadding = 6;
+
+  useEffect(() => {
+    if (!bookTickers.length) return;
+    const baseHalfRows = Math.floor(baseRowCount / 2);
+    const prevExtras = bookExtraRowsRef.current || {};
+    let nextExtras = { ...prevExtras };
+    let changed = false;
+    let scrollDelta = 0;
+
+    bookTickers.forEach((ticker) => {
+      const quotedDecimals = decimalsByTicker.get(ticker) ?? 2;
+      const priceStep = getStepFromDecimals(quotedDecimals);
+      const bookData = booksByTicker[ticker] || null;
+      const bidLevels = bookData?.bids || bookData?.bid || [];
+      const askLevels = bookData?.asks || bookData?.ask || [];
+      const prices = [];
+      bidLevels.forEach((level) => {
+        const value = Number(level?.price);
+        if (Number.isFinite(value)) prices.push(value);
+      });
+      askLevels.forEach((level) => {
+        const value = Number(level?.price);
+        if (Number.isFinite(value)) prices.push(value);
+      });
+      const orderPrices = ordersByTickerPrice.get(ticker);
+      if (orderPrices) {
+        orderPrices.forEach((_, key) => {
+          const value = Number(key);
+          if (Number.isFinite(value)) prices.push(value);
+        });
+      }
+      if (!prices.length) return;
+      const minPrice = Math.min(...prices);
+      const maxPrice = Math.max(...prices);
+
+      const sec = securityByTicker.get(ticker) || {};
+      const last = Number(sec.last);
+      const bid = Number(sec.bid);
+      const ask = Number(sec.ask);
+      const bestBid = bidLevels[0]?.price ?? bid ?? last;
+      const bestAsk = askLevels[0]?.price ?? ask ?? last;
+      const bestBidNumber = Number(bestBid);
+      const bestAskNumber = Number(bestAsk);
+      const fallbackPrice = Number.isFinite(last)
+        ? last
+        : Number.isFinite(bestBidNumber)
+          ? bestBidNumber
+          : bestAskNumber;
+      const midPrice =
+        Number.isFinite(bestBidNumber) && Number.isFinite(bestAskNumber)
+          ? (bestBidNumber + bestAskNumber) / 2
+          : fallbackPrice;
+      const anchorPrice = Number.isFinite(bookAnchors[ticker]) ? bookAnchors[ticker] : midPrice;
+      if (!Number.isFinite(anchorPrice)) return;
+      const anchorTick = toStepTick(anchorPrice, priceStep);
+      const minTick = toStepTick(minPrice, priceStep);
+      const maxTick = toStepTick(maxPrice, priceStep);
+      const maxDistance = Math.max(
+        Math.abs(anchorTick - minTick),
+        Math.abs(maxTick - anchorTick)
+      );
+      const requiredHalfRows = Math.max(baseHalfRows, maxDistance + BOOK_EDGE_BUFFER_TICKS);
+      const requiredExtra = Math.max(0, requiredHalfRows - baseHalfRows);
+      const prevExtra = prevExtras[ticker] || 0;
+      if (requiredExtra > prevExtra) {
+        nextExtras[ticker] = requiredExtra;
+        changed = true;
+        if (ticker === selectedTicker) {
+          scrollDelta = Math.max(scrollDelta, requiredExtra - prevExtra);
+        }
+      }
+    });
+
+    if (!changed) return;
+    if (scrollDelta && bookScrollRef.current) {
+      bookScrollRef.current.scrollTop += scrollDelta * BOOK_ROW_HEIGHT_PX;
+    }
+    bookExtraRowsRef.current = nextExtras;
+    setBookExtraRows(nextExtras);
+  }, [
+    baseRowCount,
+    bookAnchors,
+    bookTickers,
+    booksByTicker,
+    decimalsByTicker,
+    ordersByTickerPrice,
+    securityByTicker,
+    selectedTicker,
+  ]);
 
   const buildBookState = useCallback(
     (ticker) => {
@@ -2157,25 +2361,9 @@ function App() {
           : fallbackPrice;
       const anchorPrice = Number.isFinite(bookAnchors[ticker]) ? bookAnchors[ticker] : midPrice;
       const anchorTick = toStepTick(Number.isFinite(anchorPrice) ? anchorPrice : 0, priceStep);
-      const priceKeys = [
-        ...bidMap.keys(),
-        ...askMap.keys(),
-        ...Array.from(ordersByTickerPrice.get(ticker)?.keys() || []),
-      ];
-      const priceCandidates = priceKeys.map((value) => Number(value)).filter(Number.isFinite);
-      const minPrice = priceCandidates.length ? Math.min(...priceCandidates) : null;
-      const maxPrice = priceCandidates.length ? Math.max(...priceCandidates) : null;
       const baseHalfRows = Math.floor(baseRowCount / 2);
-      let halfRows = baseHalfRows;
-      // Stretch the ladder if orders hit the edge — no cliffhangers on this desk.
-      if (Number.isFinite(minPrice)) {
-        const minTick = toStepTick(minPrice, priceStep);
-        halfRows = Math.max(halfRows, Math.abs(anchorTick - minTick) + bookEdgePadding);
-      }
-      if (Number.isFinite(maxPrice)) {
-        const maxTick = toStepTick(maxPrice, priceStep);
-        halfRows = Math.max(halfRows, Math.abs(maxTick - anchorTick) + bookEdgePadding);
-      }
+      const extraHalfRows = bookExtraRows[ticker] || 0;
+      const halfRows = baseHalfRows + extraHalfRows;
       const rowCount = Math.max(2, halfRows * 2);
       const liveMidTick = Number.isFinite(midPrice) ? toStepTick(midPrice, priceStep) : anchorTick;
       const hasSpread =
@@ -2251,7 +2439,9 @@ function App() {
     },
     [
       aggregateLevels,
+      baseRowCount,
       bookAnchors,
+      bookExtraRows,
       booksByTicker,
       decimalsByTicker,
       isCaseStopped,
@@ -2306,8 +2496,6 @@ function App() {
   useEffect(() => {
     if (connectionStatus !== "Connected") return;
     const caseKey = caseInfo?.name ?? caseInfo?.case_id ?? caseInfo?.case ?? null;
-    const currTick = Number(caseInfo?.tick);
-    const currPeriod = caseInfo?.period ?? null;
     const anchorState = bookAnchorRef.current;
     let shouldReset = false;
 
@@ -2319,21 +2507,6 @@ function App() {
     if (caseKey && anchorState.caseKey !== caseKey) {
       anchorState.caseKey = caseKey;
       shouldReset = true;
-    }
-
-    if (currTick === 1 && anchorState.tick1Period !== currPeriod) {
-      anchorState.tick1Period = currPeriod;
-      shouldReset = true;
-    }
-
-    if (isCaseStopped) {
-      const idleKey = caseKey || "idle";
-      if (anchorState.idleAt !== idleKey) {
-        anchorState.idleAt = idleKey;
-        shouldReset = true;
-      }
-    } else if (anchorState.idleAt) {
-      anchorState.idleAt = null;
     }
 
     if (!shouldReset) return;
@@ -2355,10 +2528,7 @@ function App() {
     caseInfo?.case,
     caseInfo?.case_id,
     caseInfo?.name,
-    caseInfo?.period,
-    caseInfo?.tick,
     connectionStatus,
-    isCaseStopped,
     lastConnectAt,
   ]);
 
@@ -2395,50 +2565,26 @@ function App() {
   useEffect(() => {
     if (connectionStatus !== "Connected") return;
     const caseKey = caseInfo?.name ?? caseInfo?.case_id ?? caseInfo?.case ?? null;
-    const currTick = Number(caseInfo?.tick);
-    const currPeriod = caseInfo?.period ?? null;
     const bookCenterState = bookCenterRef.current;
 
     if (lastConnectAt && bookCenterState.connectAt !== lastConnectAt) {
       if (!centerOrderBook()) return;
       bookCenterState.connectAt = lastConnectAt;
       if (caseKey) bookCenterState.caseKey = caseKey;
-      if (currTick === 1) bookCenterState.tick1Period = currPeriod;
       return;
     }
 
     if (caseKey && bookCenterState.caseKey !== caseKey) {
       if (!centerOrderBook()) return;
       bookCenterState.caseKey = caseKey;
-      if (currTick === 1) bookCenterState.tick1Period = currPeriod;
       return;
-    }
-
-    if (currTick === 1 && bookCenterState.tick1Period !== currPeriod) {
-      // Align at the start of each case period, then hands off the scroll wheel. 🎯
-      if (!centerOrderBook()) return;
-      bookCenterState.tick1Period = currPeriod;
-      return;
-    }
-
-    if (isCaseStopped) {
-      const idleKey = caseKey || "idle";
-      if (bookCenterState.idleAt !== idleKey) {
-        if (!centerOrderBook()) return;
-        bookCenterState.idleAt = idleKey;
-      }
-    } else if (bookCenterState.idleAt) {
-      bookCenterState.idleAt = null;
     }
   }, [
     caseInfo?.case,
     caseInfo?.case_id,
     caseInfo?.name,
-    caseInfo?.period,
-    caseInfo?.tick,
     centerOrderBook,
     connectionStatus,
-    isCaseStopped,
     lastConnectAt,
     priceRows.length,
   ]);
@@ -2903,7 +3049,7 @@ function App() {
       })
       .join(" ");
   }, []);
-  const buildPnlSparkline = useCallback((series, width = 120, height = 26) => {
+  const buildPnlSparkline = useCallback((series, width = 96, height = 26) => {
     if (!series.length) return "";
     const values = series.map((entry) => entry.value).filter(Number.isFinite);
     if (!values.length) return "";
@@ -2955,6 +3101,12 @@ function App() {
     const normalizedTick = Math.max(1, tick);
     return Math.min(1, Math.max(0, normalizedTick / total));
   }, [caseInfo?.tick, caseInfo?.ticks_per_period, isConnected]);
+  const versionMinor = Number(import.meta.env.VITE_VERSION_MINOR ?? 0) || 0;
+  const versionLabel = `V${versionMajor}.${versionMinor}`;
+  const tickBarWidth =
+    tickProgress && tickProgress > 0
+      ? `clamp(6px, ${(tickProgress * 100).toFixed(2)}%, 100%)`
+      : "0px";
   const connectedHost = config ? formatHost(config.baseUrl) : "—";
   const routeSteps = useMemo(() => {
     if (connectionStatus !== "Connected") return [];
@@ -3073,7 +3225,10 @@ function App() {
         <div className="topbar-left">
           <img className="topbar-logo" src={logoUrl} alt="Privod Johnny logo" />
           <div className="topbar-title">
-            <span className="topbar-name">Privod Johnny</span>
+            <div className="topbar-name-row">
+              <span className="topbar-name">Privod Johnny</span>
+              <span className="topbar-version">{versionLabel}</span>
+            </div>
             <span className={`status-pill status-pill--compact ${statusClass}`}>
               {statusLabel}
             </span>
@@ -3092,8 +3247,7 @@ function App() {
                 <span
                   className="tick-bar__fill"
                   style={{
-                    width: `${tickProgress * 100}%`,
-                    minWidth: tickProgress > 0 ? "6px" : "0px",
+                    width: tickBarWidth,
                   }}
                 />
               </div>
@@ -3381,7 +3535,7 @@ function App() {
                   {latestRealized != null ? formatNumber(latestRealized, 2) : "—"}
                 </strong>
                 {realizedSeries.length ? (
-                  <svg className={`pnl-sparkline ${realizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
+                  <svg className={`pnl-sparkline ${realizedTone}`} viewBox="0 0 96 26" preserveAspectRatio="none">
                     <polyline points={realizedSparkline} />
                   </svg>
                 ) : (
@@ -3394,7 +3548,7 @@ function App() {
                   {latestUnrealized != null ? formatNumber(latestUnrealized, 2) : "—"}
                 </strong>
                 {unrealizedSeries.length ? (
-                  <svg className={`pnl-sparkline ${unrealizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
+                  <svg className={`pnl-sparkline ${unrealizedTone}`} viewBox="0 0 96 26" preserveAspectRatio="none">
                     <polyline points={unrealizedSparkline} />
                   </svg>
                 ) : (
