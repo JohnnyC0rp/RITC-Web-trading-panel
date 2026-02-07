@@ -548,6 +548,18 @@
   scrollbar-gutter: stable;
 }
 
+.news-clear {
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  background: rgba(255, 255, 255, 0.9);
+  color: #0f172a;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 .news-card {
   position: relative;
   background: rgba(255, 255, 255, 0.9);
@@ -985,13 +997,13 @@ button.full {
 .book-head,
 .book-row {
   display: grid;
-  grid-template-columns: 1fr 0.5fr 1fr;
-  gap: 6px;
+  grid-template-columns: 0.9fr 0.4fr 0.9fr;
+  gap: 4px;
   align-items: center;
 }
 
 .book-head {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: #6b7280;
@@ -1028,7 +1040,7 @@ button.full {
   background: transparent;
   padding: 0;
   border-radius: 0;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   cursor: pointer;
   border-bottom: 1px solid rgba(15, 23, 42, 0.08);
   position: relative;
@@ -1050,7 +1062,7 @@ button.full {
   color: #0f172a;
   font-variant-numeric: tabular-nums;
   text-align: center;
-  font-size: 0.74rem;
+  font-size: 0.7rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1059,13 +1071,13 @@ button.full {
 
 .price.bid-price {
   text-align: right;
-  padding-right: 2px;
+  padding-right: 1px;
   justify-content: flex-end;
 }
 
 .price.ask-price {
   text-align: left;
-  padding-left: 2px;
+  padding-left: 1px;
   justify-content: flex-start;
 }
 
@@ -1085,8 +1097,8 @@ button.full {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
-  padding: 0 2px;
+  gap: 3px;
+  padding: 0 1px;
   border-radius: 6px;
   background: rgba(15, 23, 42, 0.03);
   overflow: hidden;
@@ -1131,8 +1143,8 @@ button.full {
   position: relative;
   z-index: 1;
   display: inline-flex;
-  gap: 3px;
-  font-size: 0.62rem;
+  gap: 2px;
+  font-size: 0.58rem;
   white-space: nowrap;
 }
 
@@ -1141,7 +1153,7 @@ button.full {
 }
 
 .book-chip {
-  padding: 1px 4px;
+  padding: 1px 3px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.08);
   color: #0f172a;
@@ -1205,12 +1217,12 @@ button.full {
 
 .book-table.ladder .book-head,
 .book-table.ladder .book-row {
-  grid-template-columns: 0.85fr 0.5fr 0.85fr;
+  grid-template-columns: 0.7fr 0.4fr 0.7fr;
 }
 
 .book-table.book .book-head,
 .book-table.book .book-row {
-  grid-template-columns: 0.5fr 0.78fr 0.58fr 0.58fr 0.78fr 0.5fr;
+  grid-template-columns: 0.4fr 0.55fr 0.45fr 0.45fr 0.55fr 0.4fr;
 }
 
 .book-table.ladder .book-cell {
@@ -1296,7 +1308,7 @@ button.full {
 }
 
 .orderbook-layout.single {
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
 }
 
 .orderbook-layout.multi {
@@ -1305,7 +1317,7 @@ button.full {
 
 .orderbook-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
 }
 
@@ -1327,6 +1339,14 @@ button.full {
 
 .orderbook-candles {
   min-height: 340px;
+}
+
+.orderbook-candles--inline {
+  min-height: 0;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(15, 23, 42, 0.03);
 }
 
 .api-lab {
@@ -1418,6 +1438,53 @@ button.full {
   align-items: center;
 }
 
+.executions-table {
+  display: grid;
+  gap: 6px;
+}
+
+.executions-scroll {
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-gutter: stable;
+}
+
+.executions-row {
+  display: grid;
+  grid-template-columns: 0.7fr 1.1fr 0.8fr 0.6fr;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.05);
+  font-size: 0.72rem;
+}
+
+.executions-row--head {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #64748b;
+  background: transparent;
+  padding: 0 2px;
+}
+
+.position-side {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.position-side--long {
+  color: #16a34a;
+}
+
+.position-side--short {
+  color: #dc2626;
+}
+
 .position-pnl {
   display: grid;
   gap: 2px;
@@ -1448,9 +1515,9 @@ button.full {
 
 .terminal-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  justify-content: flex-start;
+  margin-bottom: 6px;
   font-weight: 600;
 }
 
@@ -1458,6 +1525,11 @@ button.full {
   display: inline-flex;
   gap: 8px;
   align-items: center;
+}
+
+.terminal-actions--inline {
+  margin-bottom: 10px;
+  flex-wrap: wrap;
 }
 
 .terminal-metrics {
@@ -1801,6 +1873,12 @@ button.full {
   color: #e2e8f0;
 }
 
+.app[data-theme="dark"] .news-clear {
+  background: rgba(15, 23, 42, 0.85);
+  color: #e2e8f0;
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
 .app[data-theme="dark"] .hero-eyebrow,
 .app[data-theme="dark"] .hero-subtitle,
 .app[data-theme="dark"] .status-detail,
@@ -1828,6 +1906,11 @@ button.full {
   box-shadow: 0 12px 28px rgba(2, 6, 23, 0.55);
 }
 
+.app[data-theme="dark"] .orderbook-candles--inline {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
 .app[data-theme="dark"] .pnl-row {
   background: rgba(148, 163, 184, 0.12);
 }
@@ -1843,6 +1926,10 @@ button.full {
 
 .app[data-theme="dark"] .shortcut-key {
   color: #e2e8f0;
+}
+
+.app[data-theme="dark"] .executions-row {
+  background: rgba(148, 163, 184, 0.12);
 }
 
 .app[data-theme="dark"] .shortcut-action,

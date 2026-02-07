@@ -47,7 +47,7 @@ const POLL_INTERVALS_MS = {
   tenders: FAST_POLL_MS,
   news: INFO_POLL_MS,
 };
-const NEWS_TTL_MS = 30000;
+const NEWS_TTL_MS = 10000;
 const BOOK_PANEL_PRIMARY_ID = "primary";
 const MAX_BOOK_PANELS = 4;
 const MAX_PERF_POINTS = 80;
@@ -65,6 +65,7 @@ const BOOK_POLL_MAX_MS = 1000;
 const BOOK_POLL_BACKOFF_MS = 100;
 const BOOK_ROW_HEIGHT_PX = 20;
 const BOOK_EDGE_BUFFER_TICKS = 10;
+const PNL_TICK_STEP = 5;
 const CANDLE_BUCKET = 5;
 
 const INDICATORS = [
@@ -859,6 +860,7 @@ function App() {
   const tenderIdsRef = useRef(new Set());
   const hadStaleRef = useRef(false);
   const bookExtraRowsRef = useRef({});
+  const pnlUpdateRef = useRef({ tick: null, realized: null, unrealized: null });
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
   const [proxyTargetRemote, setProxyTargetRemote] = useState("remote");
@@ -1349,6 +1351,7 @@ function App() {
     setFills([]);
     setTasTrades([]);
     tasAfterRef.current = null;
+    pnlUpdateRef.current = { tick: null, realized: null, unrealized: null };
     orderTypeByIdRef.current = new Map();
     pendingPlacementsRef.current = [];
     seenFillIdsRef.current = new Set();
@@ -1621,9 +1624,28 @@ function App() {
       }
     });
     const stamp = Date.now();
-    setRealizedSeries((prev) => [...prev, { ts: stamp, value: realized }].slice(-600));
-    setUnrealizedSeries((prev) => [...prev, { ts: stamp, value: unrealized }].slice(-600));
-  }, [connectionStatus, fills, securities]);
+    const currentTick = Number(caseInfo?.tick);
+    const roundedRealized = Number(realized.toFixed(2));
+    const roundedUnrealized = Number(unrealized.toFixed(2));
+    const lastSnapshot = pnlUpdateRef.current;
+    const realizedChanged =
+      !Number.isFinite(lastSnapshot.realized) || roundedRealized !== lastSnapshot.realized;
+    const unrealizedChanged =
+      !Number.isFinite(lastSnapshot.unrealized) || roundedUnrealized !== lastSnapshot.unrealized;
+    const tickKnown = Number.isFinite(currentTick);
+    const tickDelta =
+      tickKnown && Number.isFinite(lastSnapshot.tick) ? currentTick - lastSnapshot.tick : 0;
+    const shouldStep =
+      tickKnown && (!Number.isFinite(lastSnapshot.tick) || tickDelta >= PNL_TICK_STEP);
+    if (!realizedChanged && !unrealizedChanged && !shouldStep) return;
+    pnlUpdateRef.current = {
+      tick: tickKnown ? currentTick : lastSnapshot.tick,
+      realized: roundedRealized,
+      unrealized: roundedUnrealized,
+    };
+    setRealizedSeries((prev) => [...prev, { ts: stamp, value: roundedRealized }].slice(-600));
+    setUnrealizedSeries((prev) => [...prev, { ts: stamp, value: roundedUnrealized }].slice(-600));
+  }, [caseInfo?.tick, connectionStatus, fills, securities]);
 
   useEffect(() => {
     if (connectionStatus !== "Connected" || !caseInfo) return;
@@ -1708,6 +1730,7 @@ function App() {
       setTasTrades([]);
       setBookExtraRows({});
       bookExtraRowsRef.current = {};
+      pnlUpdateRef.current = { tick: null, realized: null, unrealized: null };
       tasAfterRef.current = null;
       // Fresh period, fresh candles — like a reset button, but friendlier. ✨
       setHistoryEpoch((value) => value + 1);
@@ -2996,6 +3019,11 @@ function App() {
     [dismissedNewsIds]
   );
 
+  const clearAllNews = useCallback(() => {
+    setNewsItems([]);
+    setDismissedNewsIds([]);
+  }, []);
+
   const newsDeck = useMemo(() => {
     const sorted = [...newsItems].sort(
       (a, b) => (b.receivedAt ?? 0) - (a.receivedAt ?? 0)
@@ -3107,6 +3135,100 @@ function App() {
     tickProgress && tickProgress > 0
       ? `clamp(6px, ${(tickProgress * 100).toFixed(2)}%, 100%)`
       : "0px";
+
+  const renderChartPanel = (inline = false) => (
+    <div className={`orderbook-candles ${inline ? "orderbook-candles--inline" : ""}`}>
+      <div className="card-title chart-header">
+        <span>Candles</span>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => setShowChartSettings((prev) => !prev)}
+        >
+          Chart Settings
+        </button>
+      </div>
+      {showChartSettings && (
+        <div className="chart-settings">
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={showRangeSlider}
+              onChange={(event) => setShowRangeSlider(event.target.checked)}
+            />
+            Enable range slider
+          </label>
+          <details className="indicator-menu">
+            <summary>Indicators ({INDICATORS.length})</summary>
+            <div className="indicator-list">
+              {INDICATORS.map((indicator) => (
+                <label key={indicator.id} className="indicator-row">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(indicatorState[indicator.id])}
+                    onChange={() =>
+                      setIndicatorState((prev) => ({
+                        ...prev,
+                        [indicator.id]: !prev[indicator.id],
+                      }))
+                    }
+                  />
+                  <span>{indicator.label}</span>
+                  <button
+                    type="button"
+                    className="indicator-info"
+                    aria-label={`About ${indicator.label}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setIndicatorInfo(indicator);
+                    }}
+                  >
+                    i
+                  </button>
+                </label>
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
+      {candles.length === 0 ? (
+        <div className="muted">No candle history yet.</div>
+      ) : (
+        <Plot
+          data={chartData}
+          layout={chartLayout}
+          config={chartConfig}
+          style={{ width: "100%", height: isMultiBook ? "320px" : "420px" }}
+          onRelayout={(ev) => {
+            const next = {};
+            if (ev["xaxis.autorange"] || ev["yaxis.autorange"]) {
+              setChartView({});
+              return;
+            }
+            if (ev["xaxis.range[0]"] && ev["xaxis.range[1]"]) {
+              next.xaxis = {
+                ...(chartView.xaxis || {}),
+                range: [ev["xaxis.range[0]"], ev["xaxis.range[1]"]],
+              };
+            }
+            if (ev["yaxis.range[0]"] && ev["yaxis.range[1]"]) {
+              next.yaxis = {
+                ...(chartView.yaxis || {}),
+                range: [ev["yaxis.range[0]"], ev["yaxis.range[1]"]],
+              };
+            }
+            if (Object.keys(next).length) {
+              setChartView((prev) => ({
+                ...prev,
+                ...next,
+              }));
+            }
+          }}
+        />
+      )}
+    </div>
+  );
   const connectedHost = config ? formatHost(config.baseUrl) : "—";
   const routeSteps = useMemo(() => {
     if (connectionStatus !== "Connected") return [];
@@ -3199,6 +3321,11 @@ function App() {
         ))}
       </div>
       <div className="news-stack" aria-live="polite">
+        {newsDeck.length > 0 && (
+          <button type="button" className="news-clear" onClick={clearAllNews}>
+            Clear all
+          </button>
+        )}
         {newsDeck.map((item) => {
           const ageMs = Math.max(0, now - (item.receivedAt ?? now));
           const remaining = Math.max(0, NEWS_TTL_MS - ageMs);
@@ -3587,12 +3714,13 @@ function App() {
                 const tone =
                   position.pnl == null ? "" : position.pnl < 0 ? "negative" : "positive";
                 const sideLabel = position.qty > 0 ? "Long" : "Short";
+                const sideClass = position.qty > 0 ? "position-side position-side--long" : "position-side position-side--short";
                 return (
                   <div key={position.ticker} className="order-row position-row">
                     <div>
                       <strong>{position.ticker}</strong>
                       <div className="muted">
-                        {sideLabel} · Qty {formatQty(position.qty)} · Entry{" "}
+                        <span className={sideClass}>{sideLabel}</span> · Qty {formatQty(position.qty)} · Entry{" "}
                         {position.entry != null ? formatNumber(position.entry) : "—"}
                       </div>
                     </div>
@@ -3606,6 +3734,39 @@ function App() {
                 );
               })}
             </div>
+          </section>
+
+          <section className={`card compact-card ${requiresConnectionClass}`.trim()}>
+            <div className="card-title">My Executions</div>
+            {myExecs.length === 0 ? (
+              <div className="muted">No executions yet.</div>
+            ) : (
+              <div className="executions-table">
+                <div className="executions-row executions-row--head">
+                  <span>Ticker</span>
+                  <span>Side · Qty</span>
+                  <span>Price</span>
+                  <span>Tick</span>
+                </div>
+                <div className="executions-scroll">
+                  {myExecs.map((fill) => {
+                    const qty = Number(fill.quantity_filled ?? fill.quantity ?? fill.qty ?? 0);
+                    const price = fill.vwap ?? fill.price;
+                    return (
+                      <div
+                        key={fill.order_id ?? `${fill.ticker}-${fill.tick}-${price}`}
+                        className="executions-row"
+                      >
+                        <strong>{fill.ticker}</strong>
+                        <span>{fill.action} · {formatQty(qty)}</span>
+                        <span>{formatNumber(price)}</span>
+                        <span>{fill.tick ?? "—"}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </section>
 
           <section className={`card ${requiresConnectionClass}`.trim()}>
@@ -3969,150 +4130,36 @@ function App() {
                           })}
                         </div>
                       </div>
+                      {isMultiBook && panel.id === BOOK_PANEL_PRIMARY_ID && renderChartPanel(true)}
                     </div>
                   );
                 })}
               </div>
-              <div className="orderbook-candles">
-                <div className="card-title chart-header">
-                  <span>Candles</span>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => setShowChartSettings((prev) => !prev)}
-                  >
-                    Chart Settings
-                  </button>
-                </div>
-                {showChartSettings && (
-                  <div className="chart-settings">
-                    <label className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={showRangeSlider}
-                        onChange={(event) => setShowRangeSlider(event.target.checked)}
-                      />
-                      Enable range slider
-                    </label>
-                    <details className="indicator-menu">
-                      <summary>Indicators ({INDICATORS.length})</summary>
-                      <div className="indicator-list">
-                        {INDICATORS.map((indicator) => (
-                          <label key={indicator.id} className="indicator-row">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(indicatorState[indicator.id])}
-                              onChange={() =>
-                                setIndicatorState((prev) => ({
-                                  ...prev,
-                                  [indicator.id]: !prev[indicator.id],
-                                }))
-                              }
-                            />
-                            <span>{indicator.label}</span>
-                            <button
-                              type="button"
-                              className="indicator-info"
-                              aria-label={`About ${indicator.label}`}
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                setIndicatorInfo(indicator);
-                              }}
-                            >
-                              i
-                            </button>
-                          </label>
-                        ))}
-                      </div>
-                    </details>
-                  </div>
-                )}
-                {candles.length === 0 ? (
-                  <div className="muted">No candle history yet.</div>
-                ) : (
-                  <Plot
-                    data={chartData}
-                    layout={chartLayout}
-                    config={chartConfig}
-                    style={{ width: "100%", height: isMultiBook ? "320px" : "420px" }}
-                    onRelayout={(ev) => {
-                      const next = {};
-                      if (ev["xaxis.autorange"] || ev["yaxis.autorange"]) {
-                        setChartView({});
-                        return;
-                      }
-                      if (ev["xaxis.range[0]"] && ev["xaxis.range[1]"]) {
-                        next.xaxis = {
-                          ...(chartView.xaxis || {}),
-                          range: [ev["xaxis.range[0]"], ev["xaxis.range[1]"]],
-                        };
-                      }
-                      if (ev["yaxis.range[0]"] && ev["yaxis.range[1]"]) {
-                        next.yaxis = {
-                          ...(chartView.yaxis || {}),
-                          range: [ev["yaxis.range[0]"], ev["yaxis.range[1]"]],
-                        };
-                      }
-                      if (Object.keys(next).length) {
-                        setChartView((prev) => ({
-                          ...prev,
-                          ...next,
-                        }));
-                      }
-                    }}
-                  />
-                )}
-              </div>
+              {!isMultiBook && renderChartPanel(false)}
             </div>
           </section>
-          <section className={`card ${requiresConnectionClass}`.trim()} style={{ marginTop: "20px" }}>
-            <div className="card-title">My Executions</div>
-            <div className="orders-list">
-              {myExecs.length === 0 ? (
-                <div className="muted">No executions yet.</div>
-              ) : (
-                myExecs.map((fill) => {
-                  const qty = Number(fill.quantity_filled ?? fill.quantity ?? fill.qty ?? 0);
-                  const price = fill.vwap ?? fill.price;
-                  return (
-                    <div key={fill.order_id ?? `${fill.ticker}-${fill.tick}-${price}`} className="order-row">
-                      <div>
-                        <strong>{fill.ticker}</strong>
-                        <div className="muted">
-                          {fill.action} · Qty {formatQty(qty)} · Tick {fill.tick}
-                        </div>
-                      </div>
-                      <div className="muted">{formatNumber(price)}</div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </section>
-
           <section className={`card terminal ${requiresConnectionClass}`.trim()}>
             <div className="terminal-header">
               <span>Privod Johnny Terminal</span>
-              <div className="terminal-actions">
-                <button type="button" className="ghost small" onClick={enableAllLogFilters}>
-                  All Logs
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => {
-                    if (terminalUnlocked) {
-                      setTerminalUnlocked(false);
-                      log("Terminal locked.", "system");
-                    } else {
-                      setShowTerminalPrompt(true);
-                    }
-                  }}
-                >
-                  {terminalUnlocked ? "Lock" : "Open Terminal"}
-                </button>
-              </div>
+            </div>
+            <div className="terminal-actions terminal-actions--inline">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  if (terminalUnlocked) {
+                    setTerminalUnlocked(false);
+                    log("Terminal locked.", "system");
+                  } else {
+                    setShowTerminalPrompt(true);
+                  }
+                }}
+              >
+                {terminalUnlocked ? "Lock" : "Open Terminal"}
+              </button>
+              <button type="button" className="ghost small" onClick={enableAllLogFilters}>
+                All Logs
+              </button>
             </div>
             <div className="terminal-metrics">
               <div className="terminal-metrics-title">Endpoint response time</div>
