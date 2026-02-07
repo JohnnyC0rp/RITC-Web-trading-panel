@@ -34,23 +34,24 @@ const UPDATE_SEEN_KEY = "privodJohnnyLastUpdateSeen";
 const UPDATE_SOURCE_PATH = `${import.meta.env.BASE_URL}versions.txt`;
 const UPDATE_SEPARATOR = "==================";
 
+const FAST_POLL_MS = 200;
 const POLL_INTERVALS_MS = {
-  case: 333,
-  book: 0,
-  securities: 2500,
-  orders: 333,
+  case: FAST_POLL_MS,
+  book: FAST_POLL_MS,
+  securities: FAST_POLL_MS,
+  orders: FAST_POLL_MS,
   trader: 1000,
-  tas: 100,
-  fills: 250,
-  tenders: 500,
-  news: 500,
+  tas: FAST_POLL_MS,
+  fills: FAST_POLL_MS,
+  tenders: FAST_POLL_MS,
+  news: FAST_POLL_MS,
 };
 const NEWS_TTL_MS = 30000;
 const BOOK_PANEL_PRIMARY_ID = "primary";
 const MAX_BOOK_PANELS = 4;
 const MAX_PERF_POINTS = 80;
 const FAST_POLL_ENDPOINTS = [
-  { key: "GET /securities/book", label: "Order Book", pollMs: null },
+  { key: "GET /securities/book", label: "Order Book", pollMs: POLL_INTERVALS_MS.book },
   { key: "GET /securities/tas", label: "Time & Sales", pollMs: POLL_INTERVALS_MS.tas },
   { key: "GET /fills", label: "Fills", pollMs: POLL_INTERVALS_MS.fills },
   { key: "GET /orders", label: "Open Orders", pollMs: POLL_INTERVALS_MS.orders },
@@ -812,6 +813,7 @@ function App() {
   const [perfSeries, setPerfSeries] = useState({});
   const [showUpdatePrompt, setShowUpdatePrompt] = useState(false);
   const [updatePayload, setUpdatePayload] = useState(null);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const [lastBookUpdateAt, setLastBookUpdateAt] = useState(0);
   const [lastConnectAt, setLastConnectAt] = useState(0);
   const [notifications, setNotifications] = useState([]);
@@ -2019,34 +2021,6 @@ function App() {
     };
   }, [apiGet, caseInfo?.tick, caseInfo?.ticks_per_period, config, historyEpoch, log, selectedTicker]);
 
-  const handleOrderSubmit = async (event) => {
-    event.preventDefault();
-    if (!config) return;
-
-    const quantity = parseInt(orderDraft.quantity, 10);
-    const price = parseFloat(orderDraft.price);
-    if (!orderDraft.ticker || !quantity || !price) {
-      log("Order entry missing fields.", "order");
-      return;
-    }
-
-    try {
-      const payload = {
-        ticker: orderDraft.ticker,
-        type: "LIMIT",
-        quantity,
-        action: orderDraft.side,
-        price,
-      };
-      const result = await apiPost("/orders", payload);
-      log(`Order sent: ${orderDraft.side} ${quantity} ${orderDraft.ticker} @ ${price}`, "order");
-      log(`Order response: ${JSON.stringify(result)}`, "order");
-      notify(`Order placed: ${orderDraft.side} ${quantity} ${orderDraft.ticker} @ ${price}`, "info");
-    } catch (error) {
-      log(`Order error: ${error?.data?.message || error.message}`, "error");
-    }
-  };
-
   const handleCancel = async (orderId) => {
     if (!config) return;
     try {
@@ -2174,7 +2148,8 @@ function App() {
     return map;
   }, [decimalsByTicker, orders]);
 
-  const rowCount = 80;
+  const baseRowCount = 80;
+  const bookEdgePadding = 6;
 
   const buildBookState = useCallback(
     (ticker) => {
@@ -2222,9 +2197,28 @@ function App() {
         Number.isFinite(bestBidNumber) && Number.isFinite(bestAskNumber)
           ? (bestBidNumber + bestAskNumber) / 2
           : fallbackPrice;
-      const halfRows = Math.floor(rowCount / 2);
       const anchorPrice = Number.isFinite(bookAnchors[ticker]) ? bookAnchors[ticker] : midPrice;
       const anchorTick = toStepTick(Number.isFinite(anchorPrice) ? anchorPrice : 0, priceStep);
+      const priceKeys = [
+        ...bidMap.keys(),
+        ...askMap.keys(),
+        ...Array.from(ordersByTickerPrice.get(ticker)?.keys() || []),
+      ];
+      const priceCandidates = priceKeys.map((value) => Number(value)).filter(Number.isFinite);
+      const minPrice = priceCandidates.length ? Math.min(...priceCandidates) : null;
+      const maxPrice = priceCandidates.length ? Math.max(...priceCandidates) : null;
+      const baseHalfRows = Math.floor(baseRowCount / 2);
+      let halfRows = baseHalfRows;
+      // Stretch the ladder if orders hit the edge — no cliffhangers on this desk.
+      if (Number.isFinite(minPrice)) {
+        const minTick = toStepTick(minPrice, priceStep);
+        halfRows = Math.max(halfRows, Math.abs(anchorTick - minTick) + bookEdgePadding);
+      }
+      if (Number.isFinite(maxPrice)) {
+        const maxTick = toStepTick(maxPrice, priceStep);
+        halfRows = Math.max(halfRows, Math.abs(maxTick - anchorTick) + bookEdgePadding);
+      }
+      const rowCount = Math.max(2, halfRows * 2);
       const liveMidTick = Number.isFinite(midPrice) ? toStepTick(midPrice, priceStep) : anchorTick;
       const hasSpread =
         Number.isFinite(bestBidNumber) &&
@@ -2525,6 +2519,7 @@ function App() {
       if (event.key === "Escape") {
         setShowTerminalPrompt(false);
         setShowUpdatePrompt(false);
+        setShowShortcuts(false);
       }
     };
 
@@ -2537,6 +2532,7 @@ function App() {
     setBookView,
     setShowTerminalPrompt,
     setShowUpdatePrompt,
+    setShowShortcuts,
   ]);
 
   const candles = useMemo(() => aggregateCandles(history, 5), [history]);
@@ -2832,16 +2828,6 @@ function App() {
     modeBarButtonsToRemove: ["select2d", "lasso2d"],
   };
 
-  const pnlLayout = {
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: chartPlotBg,
-    margin: { l: 36, r: 12, t: 12, b: 22 },
-    height: 170,
-    font: { color: chartTextColor },
-    xaxis: { showgrid: false, tickfont: { size: 9, color: chartTextColor } },
-    yaxis: { tickfont: { size: 10, color: chartTextColor }, zeroline: true, gridcolor: chartGridColor },
-  };
-
   const latestPnl = pnlSeries.length ? pnlSeries[pnlSeries.length - 1]?.pnl : null;
   const latestNlv = traderInfo?.nlv ?? (pnlSeries.length ? pnlSeries[pnlSeries.length - 1]?.nlv : null);
 
@@ -2866,12 +2852,52 @@ function App() {
         return String(a.ticker).localeCompare(String(b.ticker));
       });
   }, [securities]);
+  const openPositionRows = useMemo(() => {
+    return securities
+      .map((sec) => {
+        const ticker = sec.ticker;
+        if (!ticker) return null;
+        const position = positionMap.get(ticker) || {};
+        const qty = Number(position.qty ?? sec.position ?? sec.pos ?? 0);
+        if (!Number.isFinite(qty) || qty === 0) return null;
+        const entry = Number(position.avg ?? position.vwap ?? position.price);
+        const last = Number(sec.last);
+        const bid = Number(sec.bid);
+        const ask = Number(sec.ask);
+        const mid =
+          Number.isFinite(bid) && Number.isFinite(ask)
+            ? (bid + ask) / 2
+            : Number.isFinite(last)
+              ? last
+              : Number.isFinite(bid)
+                ? bid
+                : Number.isFinite(ask)
+                  ? ask
+                  : null;
+        const pnl =
+          Number.isFinite(entry) && Number.isFinite(mid)
+            ? qty * (mid - entry)
+            : null;
+        return {
+          ticker,
+          qty,
+          entry: Number.isFinite(entry) ? entry : null,
+          pnl,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => Math.abs(b.qty) - Math.abs(a.qty));
+  }, [positionMap, securities]);
   const latestRealized = realizedSeries.length
     ? realizedSeries[realizedSeries.length - 1]?.value
     : null;
   const latestUnrealized = unrealizedSeries.length
     ? unrealizedSeries[unrealizedSeries.length - 1]?.value
     : null;
+  const pnlTone = latestPnl != null ? (latestPnl < 0 ? "negative" : "positive") : "";
+  const realizedTone = latestRealized != null ? (latestRealized < 0 ? "negative" : "positive") : "";
+  const unrealizedTone =
+    latestUnrealized != null ? (latestUnrealized < 0 ? "negative" : "positive") : "";
   const myExecs = useMemo(() => {
     const list = fills
       .filter((fill) => (selectedTicker ? fill.ticker === selectedTicker : true))
@@ -2914,6 +2940,14 @@ function App() {
       points: perfSeries[endpoint.key] || [],
     })).filter((row) => row.points.length > 1);
   }, [perfSeries]);
+  const shortcuts = [
+    { keys: "Space", action: "Bulk cancel open orders." },
+    { keys: "B", action: "Switch to Book Trader view." },
+    { keys: "L", action: "Switch to Ladder Trader view." },
+    { keys: "R", action: "Re-center the order book." },
+    { keys: "A", action: "Add another order book panel." },
+    { keys: "Esc", action: "Close open pop-ups." },
+  ];
 
   const formatMs = useCallback((value) => {
     if (!Number.isFinite(value)) return "—";
@@ -2934,34 +2968,30 @@ function App() {
       })
       .join(" ");
   }, []);
+  const buildPnlSparkline = useCallback((series, width = 120, height = 26) => {
+    if (!series.length) return "";
+    const values = series.map((entry) => entry.value).filter(Number.isFinite);
+    if (!values.length) return "";
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = Math.max(1, max - min);
+    return values
+      .map((value, index) => {
+        const x = values.length === 1 ? width / 2 : (index / (values.length - 1)) * width;
+        const y = height - ((value - min) / range) * height;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+  }, []);
 
-  const realizedData = useMemo(() => {
-    if (!realizedSeries.length) return [];
-    return [
-      {
-        type: "scatter",
-        mode: "lines",
-        name: "Realized",
-        x: realizedSeries.map((entry) => new Date(entry.ts)),
-        y: realizedSeries.map((entry) => entry.value),
-        line: { color: "#22c55e", width: 2 },
-      },
-    ];
-  }, [realizedSeries]);
-
-  const unrealizedData = useMemo(() => {
-    if (!unrealizedSeries.length) return [];
-    return [
-      {
-        type: "scatter",
-        mode: "lines",
-        name: "Unrealized",
-        x: unrealizedSeries.map((entry) => new Date(entry.ts)),
-        y: unrealizedSeries.map((entry) => entry.value),
-        line: { color: "#f97316", width: 2 },
-      },
-    ];
-  }, [unrealizedSeries]);
+  const realizedSparkline = useMemo(
+    () => buildPnlSparkline(realizedSeries.slice(-60)),
+    [buildPnlSparkline, realizedSeries]
+  );
+  const unrealizedSparkline = useMemo(
+    () => buildPnlSparkline(unrealizedSeries.slice(-60)),
+    [buildPnlSparkline, unrealizedSeries]
+  );
 
   const canConnect =
     mode === "local"
@@ -3125,6 +3155,14 @@ function App() {
               ))}
             </div>
           )}
+          <button
+            type="button"
+            className="ghost shortcuts-button"
+            onClick={() => setShowShortcuts(true)}
+          >
+            <span className="info-icon" aria-hidden="true">i</span>
+            Shortcuts
+          </button>
           <button
             type="button"
             className="theme-toggle theme-toggle--compact"
@@ -3380,65 +3418,6 @@ function App() {
           </section>
 
           <section className="card">
-            <div className="card-title">Order Entry</div>
-            <form onSubmit={handleOrderSubmit} className="form-grid">
-              <label>
-                Ticker
-                <select
-                  value={orderDraft.ticker}
-                  onChange={(event) =>
-                    setOrderDraft((prev) => ({ ...prev, ticker: event.target.value }))
-                  }
-                >
-                  <option value="">Select</option>
-                  {securities.map((sec) => (
-                    <option key={sec.ticker} value={sec.ticker}>
-                      {sec.ticker}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Side
-                <select
-                  value={orderDraft.side}
-                  onChange={(event) =>
-                    setOrderDraft((prev) => ({ ...prev, side: event.target.value }))
-                  }
-                >
-                  <option value="BUY">BUY</option>
-                  <option value="SELL">SELL</option>
-                </select>
-              </label>
-              <label>
-                Quantity
-                <input
-                  type="number"
-                  min="1"
-                  value={orderDraft.quantity}
-                  onChange={(event) =>
-                    setOrderDraft((prev) => ({ ...prev, quantity: event.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Limit Price
-                <input
-                  type="number"
-                  step="0.01"
-                  value={orderDraft.price}
-                  onChange={(event) =>
-                    setOrderDraft((prev) => ({ ...prev, price: event.target.value }))
-                  }
-                />
-              </label>
-              <button type="submit" className="primary full">
-                Place Limit Order
-              </button>
-            </form>
-          </section>
-
-          <section className="card">
             <div className="card-title">Demo Strategy</div>
             <label className="checkbox-row">
               <input
@@ -3500,58 +3479,13 @@ function App() {
             </div>
           </section>
 
-          <section className="card">
-            <div className="card-title">Open Orders</div>
-            <div className="orders-list">
-              {orders.length === 0 && <div className="muted">No open orders yet.</div>}
-              {orders.map((order) => {
-                const orderId = order.order_id ?? order.id;
-                return (
-                  <div key={orderId} className="order-row">
-                  <div>
-                    <strong>{order.ticker}</strong>
-                    <div className="muted">{order.action} {order.quantity} @ {order.price}</div>
-                  </div>
-                  <button type="button" className="ghost" onClick={() => handleCancel(orderId)}>
-                    Cancel
-                  </button>
-                </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="card">
-            <div className="card-title">Open Positions</div>
-            <div className="orders-list">
-              {securities.filter((sec) => Number(sec.position ?? sec.pos ?? 0) !== 0).length ===
-                0 && <div className="muted">No open positions.</div>}
-              {securities
-                .filter((sec) => Number(sec.position ?? sec.pos ?? 0) !== 0)
-                .map((sec) => {
-                  const position = Number(sec.position ?? sec.pos ?? 0);
-                  return (
-                    <div key={sec.ticker} className="order-row">
-                      <div>
-                        <strong>{sec.ticker}</strong>
-                        <div className="muted">Position: {formatQty(position)}</div>
-                      </div>
-                      <div className="muted">
-                        Last {formatNumber(sec.last)} · Bid {formatNumber(sec.bid)} · Ask{" "}
-                        {formatNumber(sec.ask)}
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          </section>
         </aside>
 
         <main className="main">
-          <section className="card" style={{ marginBottom: "20px" }}>
+          <section className="card pnl-card">
             <div className="card-title">PnL Tracker</div>
-            <div className="portfolio-row">
-              <div className="portfolio-meta">
+            <div className="pnl-header">
+              <div className="pnl-meta">
                 <div className="metric">
                   <span>Trader</span>
                   <strong>{traderLabel}</strong>
@@ -3575,51 +3509,104 @@ function App() {
                     </span>
                   ))
                 ) : (
-                  <div className="muted">Flat (no open positions).</div>
+                  <div className="muted">No open positions.</div>
                 )}
               </div>
             </div>
-            <div className="pnl-grid">
+            <div className="pnl-grid pnl-grid--compact">
               <div className="metric">
                 <span>NLV</span>
                 <strong>{latestNlv != null ? formatNumber(latestNlv, 2) : "—"}</strong>
               </div>
               <div className="metric">
                 <span>PnL</span>
-                <strong>{latestPnl != null ? formatNumber(latestPnl, 2) : "—"}</strong>
+                <strong className={`pnl-value ${pnlTone}`}>
+                  {latestPnl != null ? formatNumber(latestPnl, 2) : "—"}
+                </strong>
               </div>
-              <div className="metric">
-                <span>Realized</span>
-                <strong>{latestRealized != null ? formatNumber(latestRealized, 2) : "—"}</strong>
+              <div className="metric metric--spark">
+                <div className="metric-main">
+                  <span>Realized</span>
+                  <strong className={`pnl-value ${realizedTone}`}>
+                    {latestRealized != null ? formatNumber(latestRealized, 2) : "—"}
+                  </strong>
+                </div>
+                {realizedSeries.length ? (
+                  <svg className={`pnl-sparkline ${realizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
+                    <polyline points={realizedSparkline} />
+                  </svg>
+                ) : (
+                  <div className="pnl-sparkline empty">—</div>
+                )}
               </div>
-              <div className="metric">
-                <span>Unrealized</span>
-                <strong>{latestUnrealized != null ? formatNumber(latestUnrealized, 2) : "—"}</strong>
+              <div className="metric metric--spark">
+                <div className="metric-main">
+                  <span>Unrealized</span>
+                  <strong className={`pnl-value ${unrealizedTone}`}>
+                    {latestUnrealized != null ? formatNumber(latestUnrealized, 2) : "—"}
+                  </strong>
+                </div>
+                {unrealizedSeries.length ? (
+                  <svg className={`pnl-sparkline ${unrealizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
+                    <polyline points={unrealizedSparkline} />
+                  </svg>
+                ) : (
+                  <div className="pnl-sparkline empty">—</div>
+                )}
               </div>
-            </div>
-            <div className="pnl-charts">
-              {unrealizedSeries.length === 0 ? (
-                <div className="muted">No unrealized PnL yet.</div>
-              ) : (
-                <Plot
-                  data={unrealizedData}
-                  layout={{ ...pnlLayout, title: { text: "Unrealized", font: { size: 11 } } }}
-                  config={{ displayModeBar: false }}
-                  style={{ width: "100%" }}
-                />
-              )}
-              {realizedSeries.length === 0 ? (
-                <div className="muted">No realized PnL yet.</div>
-              ) : (
-                <Plot
-                  data={realizedData}
-                  layout={{ ...pnlLayout, title: { text: "Realized", font: { size: 11 } } }}
-                  config={{ displayModeBar: false }}
-                  style={{ width: "100%" }}
-                />
-              )}
             </div>
           </section>
+
+          <div className="pnl-sidecars">
+            <section className="card">
+              <div className="card-title">Open Orders</div>
+              <div className="orders-list">
+                {orders.length === 0 && <div className="muted">No open orders yet.</div>}
+                {orders.map((order) => {
+                  const orderId = order.order_id ?? order.id;
+                  return (
+                    <div key={orderId} className="order-row">
+                      <div>
+                        <strong>{order.ticker}</strong>
+                        <div className="muted">{order.action} {order.quantity} @ {order.price}</div>
+                      </div>
+                      <button type="button" className="ghost" onClick={() => handleCancel(orderId)}>
+                        Cancel
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="card">
+              <div className="card-title">Open Positions</div>
+              <div className="orders-list">
+                {openPositionRows.length === 0 && <div className="muted">No open positions.</div>}
+                {openPositionRows.map((position) => {
+                  const tone =
+                    position.pnl == null ? "" : position.pnl < 0 ? "negative" : "positive";
+                  return (
+                    <div key={position.ticker} className="order-row position-row">
+                      <div>
+                        <strong>{position.ticker}</strong>
+                        <div className="muted">
+                          Qty {formatQty(position.qty)} · Entry{" "}
+                          {position.entry != null ? formatNumber(position.entry) : "—"}
+                        </div>
+                      </div>
+                      <div className="position-pnl">
+                        <span>PnL</span>
+                        <strong className={`pnl-value ${tone}`}>
+                          {position.pnl != null ? formatNumber(position.pnl, 2) : "—"}
+                        </strong>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
 
           <section className="card orderbook-shell">
             <div className="orderbook-header">
@@ -4039,7 +4026,7 @@ function App() {
                     }
                   }}
                 >
-                  {terminalUnlocked ? "Lock" : "Unlock"}
+                  {terminalUnlocked ? "Lock" : "Open Terminal"}
                 </button>
               </div>
             </div>
@@ -4135,13 +4122,6 @@ function App() {
                 <div className="muted">Terminal locked. Unlock to start streaming logs.</div>
               )}
             </div>
-            {!terminalUnlocked && (
-              <div className="terminal-overlay">
-                <button type="button" className="primary" onClick={() => setShowTerminalPrompt(true)}>
-                  Open Terminal
-                </button>
-              </div>
-            )}
           </section>
 
           <ApiLab
@@ -4208,6 +4188,27 @@ function App() {
               <button type="button" className="ghost" onClick={() => setShowTerminalPrompt(false)}>
                 Not yet
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showShortcuts && (
+        <div className="modal">
+          <div className="modal-card shortcuts-card">
+            <div className="shortcuts-header">
+              <h3>Shortcuts</h3>
+              <button type="button" className="ghost" onClick={() => setShowShortcuts(false)}>
+                Close
+              </button>
+            </div>
+            <div className="shortcuts-list">
+              {shortcuts.map((item) => (
+                <div key={item.keys} className="shortcuts-row">
+                  <span className="shortcut-key">{item.keys}</span>
+                  <span className="shortcut-action">{item.action}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
