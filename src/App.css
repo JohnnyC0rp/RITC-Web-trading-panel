@@ -282,7 +282,11 @@
 }
 
 .status-pill {
-  padding: 8px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 6px 12px;
   border-radius: 999px;
   font-weight: 600;
   background: rgba(0, 0, 0, 0.08);
@@ -354,6 +358,32 @@
 
 .pnl-card {
   padding: 14px 16px;
+}
+
+.pnl-card.compact-card {
+  padding: 12px 14px;
+}
+
+.pnl-table {
+  display: grid;
+  gap: 8px;
+}
+
+.pnl-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.pnl-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #64748b;
 }
 
 .pnl-header {
@@ -462,12 +492,12 @@
 
 .tick-bar--mini {
   width: 120px;
-  height: 4px;
+  height: 6px;
 }
 
 .tick-bar__fill {
   height: 100%;
-  background: linear-gradient(90deg, #06b6d4 0%, #10b981 100%);
+  background: linear-gradient(90deg, #38bdf8 0%, #22c55e 55%, #f59e0b 100%);
   transition: width 220ms ease;
 }
 
@@ -491,14 +521,14 @@
 .news-stack {
   position: fixed;
   top: 84px;
-  right: 18px;
+  right: 12px;
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: flex-start;
   gap: 10px;
   z-index: 1200;
-  max-width: min(900px, 72vw);
+  max-width: min(1100px, 80vw);
   overflow-x: auto;
   padding-bottom: 6px;
   scrollbar-gutter: stable;
@@ -668,6 +698,24 @@ button.small {
   box-shadow: 0 16px 32px rgba(17, 24, 39, 0.14);
 }
 
+.compact-card {
+  padding: 12px 14px;
+}
+
+.compact-card .card-title {
+  margin-bottom: 8px;
+  font-size: 0.92rem;
+}
+
+.compact-card .order-row {
+  padding: 6px 8px;
+  font-size: 0.78rem;
+}
+
+.compact-card .orders-list {
+  gap: 6px;
+}
+
 .card-disabled {
   overflow: hidden;
 }
@@ -703,14 +751,18 @@ button.small {
 }
 
 .connection-compact {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 12px;
 }
 
 .connection-compact button {
-  align-self: flex-start;
+  justify-self: end;
+}
+
+.connection-compact .muted {
+  word-break: break-word;
 }
 
 .segmented {
@@ -946,7 +998,7 @@ button.full {
 .book-scroll {
   display: grid;
   gap: 0;
-  max-height: 620px;
+  max-height: 560px;
   overflow-y: auto;
   padding-right: 2px;
   overflow-anchor: none;
@@ -957,11 +1009,11 @@ button.full {
   background: transparent;
   padding: 0;
   border-radius: 0;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   cursor: pointer;
   border-bottom: 1px solid rgba(15, 23, 42, 0.08);
   position: relative;
-  height: 22px;
+  height: 20px;
   overflow: hidden;
 }
 
@@ -1202,7 +1254,7 @@ button.full {
 }
 
 .orderbook-shell {
-  padding: 16px;
+  padding: 12px;
 }
 
 .orderbook-header {
@@ -1751,6 +1803,10 @@ button.full {
   background: rgba(15, 23, 42, 0.92);
   border-color: rgba(148, 163, 184, 0.2);
   box-shadow: 0 12px 28px rgba(2, 6, 23, 0.55);
+}
+
+.app[data-theme="dark"] .pnl-row {
+  background: rgba(148, 163, 184, 0.12);
 }
 
 .app[data-theme="dark"] .card-disabled::after {

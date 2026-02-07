@@ -794,8 +794,6 @@ function App() {
   const [history, setHistory] = useState([]);
   const [historyEpoch, setHistoryEpoch] = useState(0);
   const [orders, setOrders] = useState([]);
-  const [traderInfo, setTraderInfo] = useState(null);
-  const [pnlSeries, setPnlSeries] = useState([]);
   const [realizedSeries, setRealizedSeries] = useState([]);
   const [unrealizedSeries, setUnrealizedSeries] = useState([]);
   const [fills, setFills] = useState([]);
@@ -840,7 +838,6 @@ function App() {
   const cancelledOrdersRef = useRef(new Map());
   const lastCaseRef = useRef({ tick: null, period: null });
   const tickAlertRef = useRef({ period: null, fired: new Set() });
-  const pnlBaseRef = useRef(null);
   const tasAfterRef = useRef(null);
   const marketSnapRef = useRef({
     last: null,
@@ -1330,13 +1327,10 @@ function App() {
     setBooksByTicker({});
     setHistory([]);
     setOrders([]);
-    setTraderInfo(null);
-    setPnlSeries([]);
     setRealizedSeries([]);
     setUnrealizedSeries([]);
     setFills([]);
     setTasTrades([]);
-    pnlBaseRef.current = null;
     tasAfterRef.current = null;
     setLastConnectAt(0);
     setLastBookUpdateAt(0);
@@ -1543,41 +1537,6 @@ function App() {
   }, [connectionStatus, fills, securities]);
 
   useEffect(() => {
-    if (!config) return undefined;
-    let stop = false;
-
-    const pull = async () => {
-      try {
-        const data = await apiGet("/trader");
-        if (stop) return;
-        setTraderInfo(data || null);
-        const nlv = Number(data?.nlv);
-        if (!Number.isFinite(nlv)) return;
-        if (pnlBaseRef.current === null) {
-          pnlBaseRef.current = nlv;
-        }
-        const pnl = nlv - (pnlBaseRef.current ?? nlv);
-        setPnlSeries((prev) => {
-          const next = [...prev, { ts: Date.now(), nlv, pnl }];
-          return next.slice(-600);
-        });
-      } catch (error) {
-        if (!stop && error?.status !== 429) {
-          log(`Trader error: ${error.message}`, "error");
-          maybeSuggestProxy(error);
-        }
-      }
-    };
-
-    pull();
-    const id = setInterval(pull, POLL_INTERVALS_MS.trader);
-    return () => {
-      stop = true;
-      clearInterval(id);
-    };
-  }, [apiGet, config, log, maybeSuggestProxy]);
-
-  useEffect(() => {
     if (connectionStatus !== "Connected" || !caseInfo) return;
     const ticksPerPeriod = Number(caseInfo.ticks_per_period);
     const tick = Number(caseInfo.tick);
@@ -1654,10 +1613,8 @@ function App() {
     if (tickReset) {
       setHistory([]);
       setChartView({});
-      setPnlSeries([]);
       setRealizedSeries([]);
       setUnrealizedSeries([]);
-      pnlBaseRef.current = null;
       setFills([]);
       setTasTrades([]);
       tasAfterRef.current = null;
@@ -2831,30 +2788,6 @@ function App() {
     modeBarButtonsToRemove: ["select2d", "lasso2d"],
   };
 
-  const latestPnl = pnlSeries.length ? pnlSeries[pnlSeries.length - 1]?.pnl : null;
-  const latestNlv = traderInfo?.nlv ?? (pnlSeries.length ? pnlSeries[pnlSeries.length - 1]?.nlv : null);
-
-  const traderLabel = useMemo(() => {
-    if (!traderInfo) return "—";
-    const id = traderInfo.trader_id ? String(traderInfo.trader_id) : "";
-    const name = [traderInfo.first_name, traderInfo.last_name].filter(Boolean).join(" ");
-    return [id, name].filter(Boolean).join(" · ") || "—";
-  }, [traderInfo]);
-
-  const portfolioPositions = useMemo(() => {
-    // Quick roster so you always know who’s on the field. 🏟️
-    return securities
-      .map((sec) => ({
-        ticker: sec.ticker,
-        position: Number(sec.position ?? sec.pos ?? 0),
-      }))
-      .filter((entry) => entry.ticker && entry.position !== 0)
-      .sort((a, b) => {
-        const diff = Math.abs(b.position) - Math.abs(a.position);
-        if (diff !== 0) return diff;
-        return String(a.ticker).localeCompare(String(b.ticker));
-      });
-  }, [securities]);
   const openPositionRows = useMemo(() => {
     return securities
       .map((sec) => {
@@ -2897,7 +2830,6 @@ function App() {
   const latestUnrealized = unrealizedSeries.length
     ? unrealizedSeries[unrealizedSeries.length - 1]?.value
     : null;
-  const pnlTone = latestPnl != null ? (latestPnl < 0 ? "negative" : "positive") : "";
   const realizedTone = latestRealized != null ? (latestRealized < 0 ? "negative" : "positive") : "";
   const unrealizedTone =
     latestUnrealized != null ? (latestUnrealized < 0 ? "negative" : "positive") : "";
@@ -3018,9 +2950,11 @@ function App() {
   const tickProgress = useMemo(() => {
     const tick = Number(caseInfo?.tick);
     const total = Number(caseInfo?.ticks_per_period);
-    if (!Number.isFinite(tick) || !Number.isFinite(total) || total <= 0) return null;
-    return Math.min(1, Math.max(0, tick / total));
-  }, [caseInfo?.tick, caseInfo?.ticks_per_period]);
+    if (!Number.isFinite(total) || total <= 0) return isConnected ? 0 : null;
+    if (!Number.isFinite(tick)) return 0;
+    const normalizedTick = Math.max(1, tick);
+    return Math.min(1, Math.max(0, normalizedTick / total));
+  }, [caseInfo?.tick, caseInfo?.ticks_per_period, isConnected]);
   const connectedHost = config ? formatHost(config.baseUrl) : "—";
   const routeSteps = useMemo(() => {
     if (connectionStatus !== "Connected") return [];
@@ -3155,7 +3089,13 @@ function App() {
             <strong>{tickLabel}</strong>
             {tickProgress != null && (
               <div className="tick-bar tick-bar--mini">
-                <span className="tick-bar__fill" style={{ width: `${tickProgress * 100}%` }} />
+                <span
+                  className="tick-bar__fill"
+                  style={{
+                    width: `${tickProgress * 100}%`,
+                    minWidth: tickProgress > 0 ? "6px" : "0px",
+                  }}
+                />
               </div>
             )}
           </div>
@@ -3432,55 +3372,14 @@ function App() {
             )}
           </section>
 
-          <section className={`card pnl-card ${requiresConnectionClass}`.trim()}>
+          <section className={`card pnl-card compact-card ${requiresConnectionClass}`.trim()}>
             <div className="card-title">PnL Tracker</div>
-            <div className="pnl-header">
-              <div className="pnl-meta">
-                <div className="metric">
-                  <span>Trader</span>
-                  <strong>{traderLabel}</strong>
-                </div>
-                <div className="metric">
-                  <span>Positions</span>
-                  <strong>{portfolioPositions.length ? formatQty(portfolioPositions.length) : "—"}</strong>
-                </div>
-              </div>
-              <div className="portfolio-pills">
-                {portfolioPositions.length ? (
-                  portfolioPositions.map((entry) => (
-                    <span
-                      key={entry.ticker}
-                      className={`pill portfolio-pill ${
-                        entry.position > 0 ? "portfolio-pill--long" : "portfolio-pill--short"
-                      }`}
-                    >
-                      <strong>{entry.ticker}</strong> {entry.position > 0 ? "Long" : "Short"}{" "}
-                      {formatQty(Math.abs(entry.position))}
-                    </span>
-                  ))
-                ) : (
-                  <div className="muted">No open positions.</div>
-                )}
-              </div>
-            </div>
-            <div className="pnl-grid pnl-grid--compact">
-              <div className="metric">
-                <span>NLV</span>
-                <strong>{latestNlv != null ? formatNumber(latestNlv, 2) : "—"}</strong>
-              </div>
-              <div className="metric">
-                <span>PnL</span>
-                <strong className={`pnl-value ${pnlTone}`}>
-                  {latestPnl != null ? formatNumber(latestPnl, 2) : "—"}
+            <div className="pnl-table">
+              <div className="pnl-row">
+                <div className="pnl-label">Realized</div>
+                <strong className={`pnl-value ${realizedTone}`}>
+                  {latestRealized != null ? formatNumber(latestRealized, 2) : "—"}
                 </strong>
-              </div>
-              <div className="metric metric--spark">
-                <div className="metric-main">
-                  <span>Realized</span>
-                  <strong className={`pnl-value ${realizedTone}`}>
-                    {latestRealized != null ? formatNumber(latestRealized, 2) : "—"}
-                  </strong>
-                </div>
                 {realizedSeries.length ? (
                   <svg className={`pnl-sparkline ${realizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
                     <polyline points={realizedSparkline} />
@@ -3489,13 +3388,11 @@ function App() {
                   <div className="pnl-sparkline empty">—</div>
                 )}
               </div>
-              <div className="metric metric--spark">
-                <div className="metric-main">
-                  <span>Unrealized</span>
-                  <strong className={`pnl-value ${unrealizedTone}`}>
-                    {latestUnrealized != null ? formatNumber(latestUnrealized, 2) : "—"}
-                  </strong>
-                </div>
+              <div className="pnl-row">
+                <div className="pnl-label">Unrealized</div>
+                <strong className={`pnl-value ${unrealizedTone}`}>
+                  {latestUnrealized != null ? formatNumber(latestUnrealized, 2) : "—"}
+                </strong>
                 {unrealizedSeries.length ? (
                   <svg className={`pnl-sparkline ${unrealizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
                     <polyline points={unrealizedSparkline} />
@@ -3507,7 +3404,7 @@ function App() {
             </div>
           </section>
 
-          <section className={`card ${requiresConnectionClass}`.trim()}>
+          <section className={`card compact-card ${requiresConnectionClass}`.trim()}>
             <div className="card-title">Open Orders</div>
             <div className="orders-list">
               {orders.length === 0 && <div className="muted">No open orders yet.</div>}
@@ -3528,7 +3425,7 @@ function App() {
             </div>
           </section>
 
-          <section className={`card ${requiresConnectionClass}`.trim()}>
+          <section className={`card compact-card ${requiresConnectionClass}`.trim()}>
             <div className="card-title">Open Positions</div>
             <div className="orders-list">
               {openPositionRows.length === 0 && <div className="muted">No open positions.</div>}
