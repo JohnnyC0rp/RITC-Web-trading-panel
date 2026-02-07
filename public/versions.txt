@@ -1,3 +1,13 @@
+2026-02-07T13:16:35Z
+🧹 Order entry panel removed for mouse-first trading.
+📌 Open orders and positions moved near PnL with entry/size/PnL details.
+📊 PnL tracker compressed with inline realized/unrealized sparklines.
+⚡ Fast polling set to 200ms for book, orders, positions, news, case, tenders, fills, and TAS.
+📈 Ladder book expands beyond edges with stronger position highlights.
+🔔 Notifications now dock bottom-left.
+🎛️ Terminal open control anchored to the terminal panel.
+ℹ️ Shortcuts button now opens a full hotkey reference.
+==================
 2026-02-06T15:26:08Z
 📚 Multi-book layout with book/ladder trader views and tighter rows.
 🎯 Order book aligns on connect and tick 1, then stays on user scroll.
