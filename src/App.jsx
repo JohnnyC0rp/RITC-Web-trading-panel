@@ -3010,6 +3010,7 @@ function App() {
       ? "online"
       : "offline";
   const isConnected = connectionStatus === "Connected";
+  const requiresConnectionClass = isConnected ? "" : "card-disabled";
   const caseLabel = caseInfo?.name || caseInfo?.case_id || "No case selected";
   const tickLabel = caseInfo
     ? `${caseInfo.tick ?? "—"} / ${caseInfo.ticks_per_period ?? "—"}`
@@ -3420,7 +3421,7 @@ function App() {
             )}
           </section>
 
-          <section className="card">
+          <section className={`card ${requiresConnectionClass}`.trim()}>
             <div className="card-title">Demo Strategy</div>
             <label className="checkbox-row">
               <input
@@ -3485,7 +3486,7 @@ function App() {
         </aside>
 
         <main className="main">
-          <section className="card orderbook-shell">
+          <section className={`card orderbook-shell ${requiresConnectionClass}`.trim()}>
             <div className="orderbook-header">
               <div>
                 <div className="card-title">Order Books</div>
@@ -3878,7 +3879,7 @@ function App() {
               </div>
             </div>
           </section>
-          <section className="card pnl-card">
+          <section className={`card pnl-card ${requiresConnectionClass}`.trim()}>
             <div className="card-title">PnL Tracker</div>
             <div className="pnl-header">
               <div className="pnl-meta">
@@ -3954,7 +3955,7 @@ function App() {
           </section>
 
           <div className="pnl-sidecars">
-            <section className="card">
+            <section className={`card ${requiresConnectionClass}`.trim()}>
               <div className="card-title">Open Orders</div>
               <div className="orders-list">
                 {orders.length === 0 && <div className="muted">No open orders yet.</div>}
@@ -3975,7 +3976,7 @@ function App() {
               </div>
             </section>
 
-            <section className="card">
+            <section className={`card ${requiresConnectionClass}`.trim()}>
               <div className="card-title">Open Positions</div>
               <div className="orders-list">
                 {openPositionRows.length === 0 && <div className="muted">No open positions.</div>}
@@ -4005,7 +4006,7 @@ function App() {
             </section>
           </div>
 
-          <section className="card" style={{ marginTop: "20px" }}>
+          <section className={`card ${requiresConnectionClass}`.trim()} style={{ marginTop: "20px" }}>
             <div className="card-title">My Executions</div>
             <div className="orders-list">
               {myExecs.length === 0 ? (
@@ -4030,7 +4031,7 @@ function App() {
             </div>
           </section>
 
-          <section className="card terminal">
+          <section className={`card terminal ${requiresConnectionClass}`.trim()}>
             <div className="terminal-header">
               <span>Privod Johnny Terminal</span>
               <div className="terminal-actions">
@@ -4156,7 +4157,7 @@ function App() {
             connected={Boolean(config)}
           />
 
-          <section className="card" style={{ marginBottom: "20px" }}>
+          <section className={`card ${requiresConnectionClass}`.trim()} style={{ marginBottom: "20px" }}>
             <div className="card-title">Market Snapshot</div>
             <div className="snapshot-grid">
               <label>

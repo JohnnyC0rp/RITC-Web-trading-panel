@@ -668,6 +668,34 @@ button.small {
   box-shadow: 0 16px 32px rgba(17, 24, 39, 0.14);
 }
 
+.card-disabled {
+  overflow: hidden;
+}
+
+.card-disabled:hover {
+  transform: none;
+  box-shadow: 0 12px 26px rgba(17, 24, 39, 0.1);
+}
+
+.card-disabled > * {
+  filter: blur(2px);
+  opacity: 0.6;
+  pointer-events: none;
+  user-select: none;
+}
+
+.card-disabled::after {
+  content: "Waiting for connections…";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.65);
+}
+
 .card-title {
   font-weight: 600;
   font-size: 1rem;
@@ -1719,6 +1747,11 @@ button.full {
   background: rgba(15, 23, 42, 0.92);
   border-color: rgba(148, 163, 184, 0.2);
   box-shadow: 0 12px 28px rgba(2, 6, 23, 0.55);
+}
+
+.app[data-theme="dark"] .card-disabled::after {
+  background: rgba(15, 23, 42, 0.72);
+  color: #e2e8f0;
 }
 
 .app[data-theme="dark"] .shortcuts-row {
