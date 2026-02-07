@@ -1,3 +1,10 @@
+2026-02-07T13:59:55Z
+🧭 Order books now lead the main stack with PnL and positions underneath.
+🖱️ Left/right click trading logic updated for limit vs market with spread ignored.
+🧾 Open positions now show long/short, entry price, and live PnL.
+🎯 Entry arrows now point by side and tint by PnL.
+⚡ Core trading polls now run at 100ms for faster updates.
+==================
 2026-02-07T13:16:35Z
 🧹 Order entry panel removed for mouse-first trading.
 📌 Open orders and positions moved near PnL with entry/size/PnL details.
