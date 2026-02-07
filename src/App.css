@@ -705,8 +705,12 @@ button.small {
 .connection-compact {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
+}
+
+.connection-compact button {
+  align-self: flex-start;
 }
 
 .segmented {

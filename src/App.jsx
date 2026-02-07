@@ -3015,6 +3015,12 @@ function App() {
   const tickLabel = caseInfo
     ? `${caseInfo.tick ?? "—"} / ${caseInfo.ticks_per_period ?? "—"}`
     : "—";
+  const tickProgress = useMemo(() => {
+    const tick = Number(caseInfo?.tick);
+    const total = Number(caseInfo?.ticks_per_period);
+    if (!Number.isFinite(tick) || !Number.isFinite(total) || total <= 0) return null;
+    return Math.min(1, Math.max(0, tick / total));
+  }, [caseInfo?.tick, caseInfo?.ticks_per_period]);
   const connectedHost = config ? formatHost(config.baseUrl) : "—";
   const routeSteps = useMemo(() => {
     if (connectionStatus !== "Connected") return [];
@@ -3147,6 +3153,11 @@ function App() {
           <div className="topbar-stat">
             <span className="topbar-label">Tick</span>
             <strong>{tickLabel}</strong>
+            {tickProgress != null && (
+              <div className="tick-bar tick-bar--mini">
+                <span className="tick-bar__fill" style={{ width: `${tickProgress * 100}%` }} />
+              </div>
+            )}
           </div>
         </div>
         <div className="topbar-right">
@@ -3419,6 +3430,131 @@ function App() {
                 {proxyHint && <p className="error">{proxyHint}</p>}
               </>
             )}
+          </section>
+
+          <section className={`card pnl-card ${requiresConnectionClass}`.trim()}>
+            <div className="card-title">PnL Tracker</div>
+            <div className="pnl-header">
+              <div className="pnl-meta">
+                <div className="metric">
+                  <span>Trader</span>
+                  <strong>{traderLabel}</strong>
+                </div>
+                <div className="metric">
+                  <span>Positions</span>
+                  <strong>{portfolioPositions.length ? formatQty(portfolioPositions.length) : "—"}</strong>
+                </div>
+              </div>
+              <div className="portfolio-pills">
+                {portfolioPositions.length ? (
+                  portfolioPositions.map((entry) => (
+                    <span
+                      key={entry.ticker}
+                      className={`pill portfolio-pill ${
+                        entry.position > 0 ? "portfolio-pill--long" : "portfolio-pill--short"
+                      }`}
+                    >
+                      <strong>{entry.ticker}</strong> {entry.position > 0 ? "Long" : "Short"}{" "}
+                      {formatQty(Math.abs(entry.position))}
+                    </span>
+                  ))
+                ) : (
+                  <div className="muted">No open positions.</div>
+                )}
+              </div>
+            </div>
+            <div className="pnl-grid pnl-grid--compact">
+              <div className="metric">
+                <span>NLV</span>
+                <strong>{latestNlv != null ? formatNumber(latestNlv, 2) : "—"}</strong>
+              </div>
+              <div className="metric">
+                <span>PnL</span>
+                <strong className={`pnl-value ${pnlTone}`}>
+                  {latestPnl != null ? formatNumber(latestPnl, 2) : "—"}
+                </strong>
+              </div>
+              <div className="metric metric--spark">
+                <div className="metric-main">
+                  <span>Realized</span>
+                  <strong className={`pnl-value ${realizedTone}`}>
+                    {latestRealized != null ? formatNumber(latestRealized, 2) : "—"}
+                  </strong>
+                </div>
+                {realizedSeries.length ? (
+                  <svg className={`pnl-sparkline ${realizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
+                    <polyline points={realizedSparkline} />
+                  </svg>
+                ) : (
+                  <div className="pnl-sparkline empty">—</div>
+                )}
+              </div>
+              <div className="metric metric--spark">
+                <div className="metric-main">
+                  <span>Unrealized</span>
+                  <strong className={`pnl-value ${unrealizedTone}`}>
+                    {latestUnrealized != null ? formatNumber(latestUnrealized, 2) : "—"}
+                  </strong>
+                </div>
+                {unrealizedSeries.length ? (
+                  <svg className={`pnl-sparkline ${unrealizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
+                    <polyline points={unrealizedSparkline} />
+                  </svg>
+                ) : (
+                  <div className="pnl-sparkline empty">—</div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          <section className={`card ${requiresConnectionClass}`.trim()}>
+            <div className="card-title">Open Orders</div>
+            <div className="orders-list">
+              {orders.length === 0 && <div className="muted">No open orders yet.</div>}
+              {orders.map((order) => {
+                const orderId = order.order_id ?? order.id;
+                return (
+                  <div key={orderId} className="order-row">
+                    <div>
+                      <strong>{order.ticker}</strong>
+                      <div className="muted">{order.action} {order.quantity} @ {order.price}</div>
+                    </div>
+                    <button type="button" className="ghost" onClick={() => handleCancel(orderId)}>
+                      Cancel
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className={`card ${requiresConnectionClass}`.trim()}>
+            <div className="card-title">Open Positions</div>
+            <div className="orders-list">
+              {openPositionRows.length === 0 && <div className="muted">No open positions.</div>}
+              {openPositionRows.map((position) => {
+                const tone =
+                  position.pnl == null ? "" : position.pnl < 0 ? "negative" : "positive";
+                const sideLabel = position.qty > 0 ? "Long" : "Short";
+                return (
+                  <div key={position.ticker} className="order-row position-row">
+                    <div>
+                      <strong>{position.ticker}</strong>
+                      <div className="muted">
+                        {sideLabel} · Qty {formatQty(position.qty)} · Entry{" "}
+                        {position.entry != null ? formatNumber(position.entry) : "—"}
+                      </div>
+                    </div>
+                    <div className="position-pnl">
+                      <span>PnL</span>
+                      <strong className={`pnl-value ${tone}`}>
+                        {position.pnl != null ? formatNumber(position.pnl, 2) : "—"}
+                      </strong>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </section>
 
           <section className={`card ${requiresConnectionClass}`.trim()}>
@@ -3879,133 +4015,6 @@ function App() {
               </div>
             </div>
           </section>
-          <section className={`card pnl-card ${requiresConnectionClass}`.trim()}>
-            <div className="card-title">PnL Tracker</div>
-            <div className="pnl-header">
-              <div className="pnl-meta">
-                <div className="metric">
-                  <span>Trader</span>
-                  <strong>{traderLabel}</strong>
-                </div>
-                <div className="metric">
-                  <span>Positions</span>
-                  <strong>{portfolioPositions.length ? formatQty(portfolioPositions.length) : "—"}</strong>
-                </div>
-              </div>
-              <div className="portfolio-pills">
-                {portfolioPositions.length ? (
-                  portfolioPositions.map((entry) => (
-                    <span
-                      key={entry.ticker}
-                      className={`pill portfolio-pill ${
-                        entry.position > 0 ? "portfolio-pill--long" : "portfolio-pill--short"
-                      }`}
-                    >
-                      <strong>{entry.ticker}</strong> {entry.position > 0 ? "Long" : "Short"}{" "}
-                      {formatQty(Math.abs(entry.position))}
-                    </span>
-                  ))
-                ) : (
-                  <div className="muted">No open positions.</div>
-                )}
-              </div>
-            </div>
-            <div className="pnl-grid pnl-grid--compact">
-              <div className="metric">
-                <span>NLV</span>
-                <strong>{latestNlv != null ? formatNumber(latestNlv, 2) : "—"}</strong>
-              </div>
-              <div className="metric">
-                <span>PnL</span>
-                <strong className={`pnl-value ${pnlTone}`}>
-                  {latestPnl != null ? formatNumber(latestPnl, 2) : "—"}
-                </strong>
-              </div>
-              <div className="metric metric--spark">
-                <div className="metric-main">
-                  <span>Realized</span>
-                  <strong className={`pnl-value ${realizedTone}`}>
-                    {latestRealized != null ? formatNumber(latestRealized, 2) : "—"}
-                  </strong>
-                </div>
-                {realizedSeries.length ? (
-                  <svg className={`pnl-sparkline ${realizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
-                    <polyline points={realizedSparkline} />
-                  </svg>
-                ) : (
-                  <div className="pnl-sparkline empty">—</div>
-                )}
-              </div>
-              <div className="metric metric--spark">
-                <div className="metric-main">
-                  <span>Unrealized</span>
-                  <strong className={`pnl-value ${unrealizedTone}`}>
-                    {latestUnrealized != null ? formatNumber(latestUnrealized, 2) : "—"}
-                  </strong>
-                </div>
-                {unrealizedSeries.length ? (
-                  <svg className={`pnl-sparkline ${unrealizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
-                    <polyline points={unrealizedSparkline} />
-                  </svg>
-                ) : (
-                  <div className="pnl-sparkline empty">—</div>
-                )}
-              </div>
-            </div>
-          </section>
-
-          <div className="pnl-sidecars">
-            <section className={`card ${requiresConnectionClass}`.trim()}>
-              <div className="card-title">Open Orders</div>
-              <div className="orders-list">
-                {orders.length === 0 && <div className="muted">No open orders yet.</div>}
-                {orders.map((order) => {
-                  const orderId = order.order_id ?? order.id;
-                  return (
-                    <div key={orderId} className="order-row">
-                      <div>
-                        <strong>{order.ticker}</strong>
-                        <div className="muted">{order.action} {order.quantity} @ {order.price}</div>
-                      </div>
-                      <button type="button" className="ghost" onClick={() => handleCancel(orderId)}>
-                        Cancel
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className={`card ${requiresConnectionClass}`.trim()}>
-              <div className="card-title">Open Positions</div>
-              <div className="orders-list">
-                {openPositionRows.length === 0 && <div className="muted">No open positions.</div>}
-                {openPositionRows.map((position) => {
-                  const tone =
-                    position.pnl == null ? "" : position.pnl < 0 ? "negative" : "positive";
-                  const sideLabel = position.qty > 0 ? "Long" : "Short";
-                  return (
-                    <div key={position.ticker} className="order-row position-row">
-                      <div>
-                        <strong>{position.ticker}</strong>
-                        <div className="muted">
-                          {sideLabel} · Qty {formatQty(position.qty)} · Entry{" "}
-                          {position.entry != null ? formatNumber(position.entry) : "—"}
-                        </div>
-                      </div>
-                      <div className="position-pnl">
-                        <span>PnL</span>
-                        <strong className={`pnl-value ${tone}`}>
-                          {position.pnl != null ? formatNumber(position.pnl, 2) : "—"}
-                        </strong>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
-
           <section className={`card ${requiresConnectionClass}`.trim()} style={{ marginTop: "20px" }}>
             <div className="card-title">My Executions</div>
             <div className="orders-list">
