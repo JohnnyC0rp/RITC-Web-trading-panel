@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 const JsonBlock = ({ data }) => {
   if (!data || (Array.isArray(data) && data.length === 0)) {
@@ -30,7 +30,6 @@ export default function ApiLab({
   apiDelete,
   log,
   selectedTicker,
-  securities,
   connected,
 }) {
   const [trader, setTrader] = useState(null);
@@ -73,14 +72,8 @@ export default function ApiLab({
   const [bulkValue, setBulkValue] = useState("");
   const [bulkResult, setBulkResult] = useState(null);
 
-  useEffect(() => {
-    if (!assetHistoryTicker && selectedTicker) {
-      setAssetHistoryTicker(selectedTicker);
-    }
-    if (!leaseForm.ticker && selectedTicker) {
-      setLeaseForm((prev) => ({ ...prev, ticker: selectedTicker }));
-    }
-  }, [assetHistoryTicker, leaseForm.ticker, selectedTicker]);
+  const effectiveAssetHistoryTicker = assetHistoryTicker || selectedTicker || "";
+  const effectiveLeaseTicker = leaseForm.ticker || selectedTicker || "";
 
   const handle = async (label, fn) => {
     try {
@@ -132,7 +125,7 @@ export default function ApiLab({
       if (!ensureConnected()) return;
       setAssetHistory(
         await apiGet("/assets/history", {
-          ticker: assetHistoryTicker || undefined,
+          ticker: effectiveAssetHistoryTicker || undefined,
           limit: parseNumber(assetHistoryLimit),
         })
       );
@@ -190,10 +183,11 @@ export default function ApiLab({
   const createLease = () =>
     handle("Lease", async () => {
       if (!ensureConnected()) return;
-      if (!leaseForm.ticker) return;
-      const params = buildLeaseParams(leaseForm);
+      if (!effectiveLeaseTicker) return;
+      // Defaults here keep the form honest without extra effects. (Lazy, but in a good way.)
+      const params = buildLeaseParams({ ...leaseForm, ticker: effectiveLeaseTicker });
       const lease = await apiPost("/leases", params);
-      log(`Lease created for ${lease.ticker || leaseForm.ticker}.`);
+      log(`Lease created for ${lease.ticker || effectiveLeaseTicker}.`);
       setLeases((prev) => [lease, ...prev]);
     });
 
@@ -299,7 +293,7 @@ export default function ApiLab({
             <div className="api-actions">
               <input
                 placeholder="ticker"
-                value={assetHistoryTicker}
+                value={effectiveAssetHistoryTicker}
                 onChange={(event) => setAssetHistoryTicker(event.target.value)}
               />
               <input
@@ -412,7 +406,7 @@ export default function ApiLab({
             <div className="api-actions">
               <input
                 placeholder="ticker"
-                value={leaseForm.ticker}
+                value={effectiveLeaseTicker}
                 onChange={(event) => setLeaseForm((prev) => ({ ...prev, ticker: event.target.value }))}
               />
               <input

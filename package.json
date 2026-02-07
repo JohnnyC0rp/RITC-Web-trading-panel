@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "vite build",
-    "lint": "eslint .",
+    "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js .",
+    "check": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js .",
     "preview": "vite preview"
   },
   "homepage": ".",

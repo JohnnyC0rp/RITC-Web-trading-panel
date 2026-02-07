@@ -270,7 +270,7 @@ const safeJson = (text) => {
   if (!text) return null;
   try {
     return JSON.parse(text);
-  } catch (error) {
+  } catch {
     return { raw: text };
   }
 };
@@ -372,13 +372,6 @@ const highlightNumbers = (text) => {
 const getQty = (level) =>
   level?.quantity ?? level?.qty ?? level?.size ?? level?.volume ?? null;
 
-const formatLevel = (level) => ({
-  price: level?.price ?? null,
-  qty: getQty(level),
-});
-
-const sortDepth = (levels, limit) => (Array.isArray(levels) ? levels.slice(0, limit) : []);
-
 const getStepFromDecimals = (decimals) => {
   if (decimals === undefined || decimals === null) return 0.01;
   return 1 / Math.pow(10, decimals);
@@ -403,7 +396,6 @@ const aggregateCandles = (rows, bucketSize = CANDLE_BUCKET) => {
     if (!Number.isFinite(tick) || tick <= 0) return;
     const bucket = Math.floor((tick - 1) / bucketSize);
     const startTick = bucket * bucketSize + 1;
-    const endTick = startTick + bucketSize - 1;
     const centerTick = startTick + Math.floor(bucketSize / 2);
     const existing = buckets.get(bucket);
     if (!existing) {
@@ -1057,7 +1049,7 @@ function App() {
       gain.connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + preset.duration);
-    } catch (error) {
+    } catch {
       // If autoplay is blocked, we stay silent.
     }
   }, []);
@@ -2066,7 +2058,7 @@ function App() {
     }
   };
 
-  const bulkCancelOrders = async () => {
+  const bulkCancelOrders = useCallback(async () => {
     if (!config) return;
     try {
       await apiPost("/commands/cancel", { all: 1 });
@@ -2075,7 +2067,7 @@ function App() {
     } catch (error) {
       log(`Bulk cancel error: ${error?.data?.message || error.message}`, "error");
     }
-  };
+  }, [apiPost, config, log, notify]);
 
   const placeQuickOrder = async (ticker, side, price, isMarket = false) => {
     if (!config || !ticker) return;
@@ -2839,20 +2831,6 @@ function App() {
     doubleClick: "reset",
     modeBarButtonsToRemove: ["select2d", "lasso2d"],
   };
-
-  const pnlData = useMemo(() => {
-    if (!pnlSeries.length) return [];
-    return [
-      {
-        type: "scatter",
-        mode: "lines",
-        name: "PnL",
-        x: pnlSeries.map((entry) => new Date(entry.ts)),
-        y: pnlSeries.map((entry) => entry.pnl),
-        line: { color: "#0ea5e9", width: 2 },
-      },
-    ];
-  }, [pnlSeries]);
 
   const pnlLayout = {
     paper_bgcolor: "rgba(0,0,0,0)",
@@ -4172,7 +4150,6 @@ function App() {
             apiDelete={apiDelete}
             log={log}
             selectedTicker={selectedTicker}
-            securities={securities}
             connected={Boolean(config)}
           />
 
