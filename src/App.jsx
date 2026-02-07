@@ -34,9 +34,10 @@ const UPDATE_SEEN_KEY = "privodJohnnyLastUpdateSeen";
 const UPDATE_SOURCE_PATH = `${import.meta.env.BASE_URL}versions.txt`;
 const UPDATE_SEPARATOR = "==================";
 
-const FAST_POLL_MS = 200;
+const FAST_POLL_MS = 100;
+const INFO_POLL_MS = 200;
 const POLL_INTERVALS_MS = {
-  case: FAST_POLL_MS,
+  case: INFO_POLL_MS,
   book: FAST_POLL_MS,
   securities: FAST_POLL_MS,
   orders: FAST_POLL_MS,
@@ -44,7 +45,7 @@ const POLL_INTERVALS_MS = {
   tas: FAST_POLL_MS,
   fills: FAST_POLL_MS,
   tenders: FAST_POLL_MS,
-  news: FAST_POLL_MS,
+  news: INFO_POLL_MS,
 };
 const NEWS_TTL_MS = 30000;
 const BOOK_PANEL_PRIMARY_ID = "primary";
@@ -61,7 +62,7 @@ const FAST_POLL_ENDPOINTS = [
 const FAST_POLL_KEYS = new Set(FAST_POLL_ENDPOINTS.map((endpoint) => endpoint.key));
 const BOOK_DEPTH_LIMIT = 1000;
 const BOOK_POLL_MAX_MS = 1000;
-const BOOK_POLL_BACKOFF_MS = 200;
+const BOOK_POLL_BACKOFF_MS = 100;
 const CANDLE_BUCKET = 5;
 
 const INDICATORS = [
@@ -2247,7 +2248,8 @@ function App() {
             tone: pnlValue >= 0 ? "win" : "loss",
             side: positionQty > 0 ? "long" : "short",
             entryPrice,
-            direction: midPrice >= entryPrice ? "up" : "down",
+            direction: positionQty > 0 ? "up" : "down",
+            entryTone: pnlValue >= 0 ? "positive" : "negative",
           }
         : null;
       const entryKey =
@@ -2274,6 +2276,7 @@ function App() {
           pnlSide: inPnlRange ? positionRange.side : null,
           isEntry: entryKey ? key === entryKey : false,
           entryDirection: positionRange?.direction || null,
+          entryTone: positionRange?.entryTone || null,
           key,
         };
       });
@@ -3482,132 +3485,6 @@ function App() {
         </aside>
 
         <main className="main">
-          <section className="card pnl-card">
-            <div className="card-title">PnL Tracker</div>
-            <div className="pnl-header">
-              <div className="pnl-meta">
-                <div className="metric">
-                  <span>Trader</span>
-                  <strong>{traderLabel}</strong>
-                </div>
-                <div className="metric">
-                  <span>Positions</span>
-                  <strong>{portfolioPositions.length ? formatQty(portfolioPositions.length) : "—"}</strong>
-                </div>
-              </div>
-              <div className="portfolio-pills">
-                {portfolioPositions.length ? (
-                  portfolioPositions.map((entry) => (
-                    <span
-                      key={entry.ticker}
-                      className={`pill portfolio-pill ${
-                        entry.position > 0 ? "portfolio-pill--long" : "portfolio-pill--short"
-                      }`}
-                    >
-                      <strong>{entry.ticker}</strong> {entry.position > 0 ? "Long" : "Short"}{" "}
-                      {formatQty(Math.abs(entry.position))}
-                    </span>
-                  ))
-                ) : (
-                  <div className="muted">No open positions.</div>
-                )}
-              </div>
-            </div>
-            <div className="pnl-grid pnl-grid--compact">
-              <div className="metric">
-                <span>NLV</span>
-                <strong>{latestNlv != null ? formatNumber(latestNlv, 2) : "—"}</strong>
-              </div>
-              <div className="metric">
-                <span>PnL</span>
-                <strong className={`pnl-value ${pnlTone}`}>
-                  {latestPnl != null ? formatNumber(latestPnl, 2) : "—"}
-                </strong>
-              </div>
-              <div className="metric metric--spark">
-                <div className="metric-main">
-                  <span>Realized</span>
-                  <strong className={`pnl-value ${realizedTone}`}>
-                    {latestRealized != null ? formatNumber(latestRealized, 2) : "—"}
-                  </strong>
-                </div>
-                {realizedSeries.length ? (
-                  <svg className={`pnl-sparkline ${realizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
-                    <polyline points={realizedSparkline} />
-                  </svg>
-                ) : (
-                  <div className="pnl-sparkline empty">—</div>
-                )}
-              </div>
-              <div className="metric metric--spark">
-                <div className="metric-main">
-                  <span>Unrealized</span>
-                  <strong className={`pnl-value ${unrealizedTone}`}>
-                    {latestUnrealized != null ? formatNumber(latestUnrealized, 2) : "—"}
-                  </strong>
-                </div>
-                {unrealizedSeries.length ? (
-                  <svg className={`pnl-sparkline ${unrealizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
-                    <polyline points={unrealizedSparkline} />
-                  </svg>
-                ) : (
-                  <div className="pnl-sparkline empty">—</div>
-                )}
-              </div>
-            </div>
-          </section>
-
-          <div className="pnl-sidecars">
-            <section className="card">
-              <div className="card-title">Open Orders</div>
-              <div className="orders-list">
-                {orders.length === 0 && <div className="muted">No open orders yet.</div>}
-                {orders.map((order) => {
-                  const orderId = order.order_id ?? order.id;
-                  return (
-                    <div key={orderId} className="order-row">
-                      <div>
-                        <strong>{order.ticker}</strong>
-                        <div className="muted">{order.action} {order.quantity} @ {order.price}</div>
-                      </div>
-                      <button type="button" className="ghost" onClick={() => handleCancel(orderId)}>
-                        Cancel
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="card">
-              <div className="card-title">Open Positions</div>
-              <div className="orders-list">
-                {openPositionRows.length === 0 && <div className="muted">No open positions.</div>}
-                {openPositionRows.map((position) => {
-                  const tone =
-                    position.pnl == null ? "" : position.pnl < 0 ? "negative" : "positive";
-                  return (
-                    <div key={position.ticker} className="order-row position-row">
-                      <div>
-                        <strong>{position.ticker}</strong>
-                        <div className="muted">
-                          Qty {formatQty(position.qty)} · Entry{" "}
-                          {position.entry != null ? formatNumber(position.entry) : "—"}
-                        </div>
-                      </div>
-                      <div className="position-pnl">
-                        <span>PnL</span>
-                        <strong className={`pnl-value ${tone}`}>
-                          {position.pnl != null ? formatNumber(position.pnl, 2) : "—"}
-                        </strong>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
-
           <section className="card orderbook-shell">
             <div className="orderbook-header">
               <div>
@@ -3701,16 +3578,37 @@ function App() {
                             const hasOrders = myOrders.buyCount || myOrders.sellCount;
                             const bidTrader = myOrders.buyCount ? "ME" : "ANON";
                             const askTrader = myOrders.sellCount ? "ME" : "ANON";
-                            const side =
-                              row.price <= (state.bestBidPrice ?? state.midPrice)
-                                ? "BUY"
-                                : "SELL";
+                            const bestBid = Number(state.bestBidPrice ?? state.midPrice);
+                            const bestAsk = Number(state.bestAskPrice ?? state.midPrice);
+                            const isBidZone = Number.isFinite(bestBid)
+                              ? row.price <= bestBid
+                              : row.price <= state.midPrice;
+                            const isAskZone = Number.isFinite(bestAsk)
+                              ? row.price >= bestAsk
+                              : row.price >= state.midPrice;
                             const entryArrow =
                               row.entryDirection === "down"
                                 ? "↓"
                                 : row.entryDirection === "up"
                                   ? "↑"
                                   : "";
+                            const handleBookOrder = (event, intent) => {
+                              event.preventDefault();
+                              if (!panel.ticker || row.isSpread) return;
+                              if (intent === "buy") {
+                                if (isBidZone) {
+                                  placeQuickOrder(panel.ticker, "BUY", row.price, false);
+                                } else if (isAskZone) {
+                                  placeQuickOrder(panel.ticker, "BUY", row.price, true);
+                                }
+                                return;
+                              }
+                              if (isAskZone) {
+                                placeQuickOrder(panel.ticker, "SELL", row.price, false);
+                              } else if (isBidZone) {
+                                placeQuickOrder(panel.ticker, "SELL", row.price, true);
+                              }
+                            };
                             return (
                               <div
                                 key={`${panel.id}-${row.price}-${index}`}
@@ -3718,9 +3616,8 @@ function App() {
                                   row.isSpread ? "spread" : ""
                                 } ${hasOrders ? "has-orders" : ""}`}
                                 data-center={row.isCenter ? "true" : undefined}
-                                onClick={(event) =>
-                                  placeQuickOrder(panel.ticker, side, row.price, event.shiftKey)
-                                }
+                                onClick={(event) => handleBookOrder(event, "buy")}
+                                onContextMenu={(event) => handleBookOrder(event, "sell")}
                               >
                                 {bookView === "book" ? (
                                   <>
@@ -3761,7 +3658,7 @@ function App() {
                                       }`}
                                     >
                                       {row.isEntry && row.pnlSide === "long" && entryArrow && (
-                                        <span className={`book-entry ${row.entryDirection}`}>
+                                        <span className={`book-entry ${row.entryDirection} ${row.entryTone || ""}`}>
                                           {entryArrow}
                                         </span>
                                       )}
@@ -3773,7 +3670,7 @@ function App() {
                                       }`}
                                     >
                                       {row.isEntry && row.pnlSide === "short" && entryArrow && (
-                                        <span className={`book-entry ${row.entryDirection}`}>
+                                        <span className={`book-entry ${row.entryDirection} ${row.entryTone || ""}`}>
                                           {entryArrow}
                                         </span>
                                       )}
@@ -3845,7 +3742,7 @@ function App() {
                                       }`}
                                     >
                                       {row.isEntry && entryArrow && (
-                                        <span className={`book-entry ${row.entryDirection}`}>
+                                        <span className={`book-entry ${row.entryDirection} ${row.entryTone || ""}`}>
                                           {entryArrow}
                                         </span>
                                       )}
@@ -3981,6 +3878,132 @@ function App() {
               </div>
             </div>
           </section>
+          <section className="card pnl-card">
+            <div className="card-title">PnL Tracker</div>
+            <div className="pnl-header">
+              <div className="pnl-meta">
+                <div className="metric">
+                  <span>Trader</span>
+                  <strong>{traderLabel}</strong>
+                </div>
+                <div className="metric">
+                  <span>Positions</span>
+                  <strong>{portfolioPositions.length ? formatQty(portfolioPositions.length) : "—"}</strong>
+                </div>
+              </div>
+              <div className="portfolio-pills">
+                {portfolioPositions.length ? (
+                  portfolioPositions.map((entry) => (
+                    <span
+                      key={entry.ticker}
+                      className={`pill portfolio-pill ${
+                        entry.position > 0 ? "portfolio-pill--long" : "portfolio-pill--short"
+                      }`}
+                    >
+                      <strong>{entry.ticker}</strong> {entry.position > 0 ? "Long" : "Short"}{" "}
+                      {formatQty(Math.abs(entry.position))}
+                    </span>
+                  ))
+                ) : (
+                  <div className="muted">No open positions.</div>
+                )}
+              </div>
+            </div>
+            <div className="pnl-grid pnl-grid--compact">
+              <div className="metric">
+                <span>NLV</span>
+                <strong>{latestNlv != null ? formatNumber(latestNlv, 2) : "—"}</strong>
+              </div>
+              <div className="metric">
+                <span>PnL</span>
+                <strong className={`pnl-value ${pnlTone}`}>
+                  {latestPnl != null ? formatNumber(latestPnl, 2) : "—"}
+                </strong>
+              </div>
+              <div className="metric metric--spark">
+                <div className="metric-main">
+                  <span>Realized</span>
+                  <strong className={`pnl-value ${realizedTone}`}>
+                    {latestRealized != null ? formatNumber(latestRealized, 2) : "—"}
+                  </strong>
+                </div>
+                {realizedSeries.length ? (
+                  <svg className={`pnl-sparkline ${realizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
+                    <polyline points={realizedSparkline} />
+                  </svg>
+                ) : (
+                  <div className="pnl-sparkline empty">—</div>
+                )}
+              </div>
+              <div className="metric metric--spark">
+                <div className="metric-main">
+                  <span>Unrealized</span>
+                  <strong className={`pnl-value ${unrealizedTone}`}>
+                    {latestUnrealized != null ? formatNumber(latestUnrealized, 2) : "—"}
+                  </strong>
+                </div>
+                {unrealizedSeries.length ? (
+                  <svg className={`pnl-sparkline ${unrealizedTone}`} viewBox="0 0 120 26" preserveAspectRatio="none">
+                    <polyline points={unrealizedSparkline} />
+                  </svg>
+                ) : (
+                  <div className="pnl-sparkline empty">—</div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          <div className="pnl-sidecars">
+            <section className="card">
+              <div className="card-title">Open Orders</div>
+              <div className="orders-list">
+                {orders.length === 0 && <div className="muted">No open orders yet.</div>}
+                {orders.map((order) => {
+                  const orderId = order.order_id ?? order.id;
+                  return (
+                    <div key={orderId} className="order-row">
+                      <div>
+                        <strong>{order.ticker}</strong>
+                        <div className="muted">{order.action} {order.quantity} @ {order.price}</div>
+                      </div>
+                      <button type="button" className="ghost" onClick={() => handleCancel(orderId)}>
+                        Cancel
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="card">
+              <div className="card-title">Open Positions</div>
+              <div className="orders-list">
+                {openPositionRows.length === 0 && <div className="muted">No open positions.</div>}
+                {openPositionRows.map((position) => {
+                  const tone =
+                    position.pnl == null ? "" : position.pnl < 0 ? "negative" : "positive";
+                  const sideLabel = position.qty > 0 ? "Long" : "Short";
+                  return (
+                    <div key={position.ticker} className="order-row position-row">
+                      <div>
+                        <strong>{position.ticker}</strong>
+                        <div className="muted">
+                          {sideLabel} · Qty {formatQty(position.qty)} · Entry{" "}
+                          {position.entry != null ? formatNumber(position.entry) : "—"}
+                        </div>
+                      </div>
+                      <div className="position-pnl">
+                        <span>PnL</span>
+                        <strong className={`pnl-value ${tone}`}>
+                          {position.pnl != null ? formatNumber(position.pnl, 2) : "—"}
+                        </strong>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
 
           <section className="card" style={{ marginTop: "20px" }}>
             <div className="card-title">My Executions</div>

@@ -1159,13 +1159,13 @@ button.full {
   color: #0f172a;
 }
 
-.book-entry.up {
-  background: rgba(34, 197, 94, 0.3);
+.book-entry.positive {
+  background: rgba(34, 197, 94, 0.35);
   color: #166534;
 }
 
-.book-entry.down {
-  background: rgba(239, 68, 68, 0.3);
+.book-entry.negative {
+  background: rgba(239, 68, 68, 0.35);
   color: #991b1b;
 }
 
