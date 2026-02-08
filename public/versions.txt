@@ -1,3 +1,9 @@
+2026-02-08T15:47:01Z
+🤝 Merger-arbitrage pair workspace added with two default open pairs, deal descriptions, and add/remove pair cards with side-by-side charts.
+🎯 Deal target levels now render on target-company charts using case terms (cash, stock, and mixed structures).
+🧭 Each pair chart now has a checkbox to overlay its paired-company live price as a reference line.
+🧱 Custom reference-level overlays are now supported across all candle renderers (Lightweight, Plotly, ECharts, Highcharts, D3).
+==================
 2026-02-08T15:20:28Z
 🕯️ Order book display modes now support Books + Candles, Books only, and Candles only.
 🖱️ Chart mouse trading added with LMB/RMB quick-order logic and default TP/SL presets.

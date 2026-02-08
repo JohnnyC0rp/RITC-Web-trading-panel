@@ -14,6 +14,14 @@ Fast-search map for major UI sections extracted from `App.jsx`.
   - Responsibility: open position snapshot with side, entry, and live PnL.
   - Search anchors: `position-side`, `position-pnl`.
 
+- `MnaPairsSection.jsx`
+  - Responsibility: merger-arbitrage pair workspace (2 charts per pair, add/remove pairs, peer-price toggles).
+  - Search anchors: `mna-pair-select`, `mna-peer-toggle`.
+
+- `mnaPairsConfig.js`
+  - Responsibility: case-derived pair metadata + deal target math helpers.
+  - Search anchors: `cashComponent`, `stockRatio`, `deriveMnaTargetPrice`.
+
 ## Why this folder exists
 
 These section components keep high-churn UI blocks isolated, so both humans and AI agents can navigate/edit targeted features without loading the full `App.jsx` context each time.

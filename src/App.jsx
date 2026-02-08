@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ApiLab from "./components/ApiLab";
 import CandlesRenderer from "./components/charts/CandlesRenderer";
+import MnaPairsSection from "./components/sections/MnaPairsSection";
 import OpenOrdersCard from "./components/sections/OpenOrdersCard";
 import OpenPositionsCard from "./components/sections/OpenPositionsCard";
 import OrderbookSection from "./components/sections/OrderbookSection";
+import {
+  MNA_CASE_PAIRS,
+  MNA_CASE_PAIR_BY_ID,
+  MNA_DEFAULT_PAIR_IDS,
+  deriveMnaTargetPrice,
+  sanitizeMnaPairIds,
+} from "./components/sections/mnaPairsConfig";
 import {
   CANDLE_RENDERERS,
   DEFAULT_CANDLE_RENDERER,
@@ -89,6 +97,7 @@ const DEFAULT_BRACKET_SETTINGS = {
   stopLossOffset: "0.30",
   takeProfitOffset: "0.60",
 };
+const buildMnaPeerVisibilityKey = (pairId, ticker) => `${pairId}:${ticker}`;
 
 const INDICATORS = [
   {
@@ -547,6 +556,91 @@ const buildPositionsFromFills = (fills) => {
   return positions;
 };
 
+const buildFillMarkersForTicker = (fills, ticker) => {
+  if (!Array.isArray(fills) || !fills.length || !ticker) {
+    return { opens: [], closes: [] };
+  }
+  const filtered = fills
+    .filter(
+      (fill) =>
+        fill.ticker === ticker &&
+        Number.isFinite(Number(fill.tick)) &&
+        Number.isFinite(Number(fill.vwap ?? fill.price))
+    )
+    .sort((a, b) => {
+      const tickA = Number(a.tick ?? 0);
+      const tickB = Number(b.tick ?? 0);
+      if (tickA !== tickB) return tickA - tickB;
+      return Number(a.order_id ?? 0) - Number(b.order_id ?? 0);
+    });
+  const opens = [];
+  const closes = [];
+  let position = 0;
+  filtered.forEach((fill) => {
+    const qty = Number(fill.quantity_filled ?? fill.quantity ?? fill.qty ?? 0);
+    const signed = fill.action === "BUY" ? qty : -qty;
+    const before = position;
+    position += signed;
+    if (before === 0 && position !== 0) {
+      opens.push(fill);
+    }
+    if (position === 0 && before !== 0) {
+      closes.push(fill);
+    }
+    if ((before > 0 && position < 0) || (before < 0 && position > 0)) {
+      closes.push(fill);
+      opens.push(fill);
+    }
+  });
+  return { opens, closes };
+};
+
+const buildOrderLevelsForTicker = ({
+  orders,
+  ticker,
+  decimals,
+}) => {
+  if (!ticker) {
+    return { limit: [], stopLoss: [], takeProfit: [] };
+  }
+  const limitByKey = new Map();
+  const stopByKey = new Map();
+  const takeByKey = new Map();
+  orders.forEach((order) => {
+    if (order?.ticker !== ticker) return;
+    const side = String(order.action || "").toUpperCase() === "SELL" ? "SELL" : "BUY";
+    const type = String(order.type || "").toUpperCase();
+    const orderPrice = firstFinite(order?.price);
+    const stopLoss = getOrderStopLoss(order);
+    const takeProfit = getOrderTakeProfit(order);
+
+    if (type === "LIMIT" && orderPrice != null) {
+      const level = Number(orderPrice).toFixed(decimals);
+      const key = `${side}:${level}`;
+      const existing = limitByKey.get(key) || { price: Number(level), side, count: 0 };
+      existing.count += 1;
+      limitByKey.set(key, existing);
+    }
+    if (stopLoss != null) {
+      const key = Number(stopLoss).toFixed(decimals);
+      const existing = stopByKey.get(key) || { price: Number(key), count: 0 };
+      existing.count += 1;
+      stopByKey.set(key, existing);
+    }
+    if (takeProfit != null) {
+      const key = Number(takeProfit).toFixed(decimals);
+      const existing = takeByKey.get(key) || { price: Number(key), count: 0 };
+      existing.count += 1;
+      takeByKey.set(key, existing);
+    }
+  });
+  return {
+    limit: Array.from(limitByKey.values()).sort((a, b) => a.price - b.price),
+    stopLoss: Array.from(stopByKey.values()).sort((a, b) => a.price - b.price),
+    takeProfit: Array.from(takeByKey.values()).sort((a, b) => a.price - b.price),
+  };
+};
+
 const calcSMA = (values, window) => {
   const result = [];
   for (let i = 0; i < values.length; i += 1) {
@@ -976,6 +1070,9 @@ function App() {
   const [orderbookDisplayMode, setOrderbookDisplayMode] = useState(DEFAULT_ORDERBOOK_DISPLAY);
   const [bracketDefaults, setBracketDefaults] = useState(DEFAULT_BRACKET_SETTINGS);
   const [bookPanels, setBookPanels] = useState([{ id: BOOK_PANEL_PRIMARY_ID, ticker: "" }]);
+  const [mnaPairIds, setMnaPairIds] = useState([...MNA_DEFAULT_PAIR_IDS]);
+  const [mnaPeerPriceVisibility, setMnaPeerPriceVisibility] = useState({});
+  const [mnaHistoryByTicker, setMnaHistoryByTicker] = useState({});
 
   const [orderDraft, setOrderDraft] = useState({
     ticker: "",
@@ -1093,6 +1190,12 @@ function App() {
           ...stored.indicators,
         }));
       }
+      if (Array.isArray(stored.mnaPairIds) && stored.mnaPairIds.length) {
+        setMnaPairIds(sanitizeMnaPairIds(stored.mnaPairIds));
+      }
+      if (stored.mnaPeerPriceVisibility && typeof stored.mnaPeerPriceVisibility === "object") {
+        setMnaPeerPriceVisibility(stored.mnaPeerPriceVisibility);
+      }
     }
     setUiPrefsHydrated(true);
   }, []);
@@ -1137,6 +1240,8 @@ function App() {
       quickOrderQuantity: orderDraft.quantity,
       logFilters,
       indicators: indicatorState,
+      mnaPairIds,
+      mnaPeerPriceVisibility,
     });
   }, [
     bookView,
@@ -1149,6 +1254,8 @@ function App() {
     orderbookDisplayMode,
     showChartSettings,
     showRangeSlider,
+    mnaPairIds,
+    mnaPeerPriceVisibility,
     theme,
     uiPrefsHydrated,
   ]);
@@ -1232,6 +1339,91 @@ function App() {
     },
     [playSound]
   );
+
+  const isMergerArbCase = useMemo(() => {
+    if (mode === "remote" && remoteConfig.caseId === "merger-arbitrage") {
+      return true;
+    }
+    const label = `${caseInfo?.name ?? ""} ${caseInfo?.case_id ?? ""} ${caseInfo?.case ?? ""}`.toLowerCase();
+    return label.includes("merger") && label.includes("arbitrage");
+  }, [caseInfo?.case, caseInfo?.case_id, caseInfo?.name, mode, remoteConfig.caseId]);
+
+  const activeMnaPairIds = useMemo(
+    () => sanitizeMnaPairIds(mnaPairIds),
+    [mnaPairIds]
+  );
+
+  const activeMnaPairs = useMemo(
+    () =>
+      activeMnaPairIds
+        .map((pairId) => MNA_CASE_PAIR_BY_ID.get(pairId))
+        .filter(Boolean),
+    [activeMnaPairIds]
+  );
+
+  const canAddMnaPair = activeMnaPairIds.length < MNA_CASE_PAIRS.length;
+
+  const addMnaPair = useCallback(() => {
+    setMnaPairIds((prev) => {
+      const sanitized = sanitizeMnaPairIds(prev);
+      if (sanitized.length >= MNA_CASE_PAIRS.length) {
+        notify("All M&A pairs are already open.", "info");
+        return sanitized;
+      }
+      const used = new Set(sanitized);
+      const nextPair = MNA_CASE_PAIRS.find((pair) => !used.has(pair.id));
+      if (!nextPair) return sanitized;
+      return [...sanitized, nextPair.id];
+    });
+  }, [notify]);
+
+  const updateMnaPairAt = useCallback((index, nextPairId) => {
+    setMnaPairIds((prev) => {
+      const sanitized = sanitizeMnaPairIds(prev);
+      if (!MNA_CASE_PAIR_BY_ID.has(nextPairId)) return sanitized;
+      const next = [...sanitized];
+      if (index < 0 || index >= next.length) return sanitized;
+      next[index] = nextPairId;
+      return sanitizeMnaPairIds(next);
+    });
+  }, []);
+
+  const removeMnaPairAt = useCallback(
+    (index) => {
+      setMnaPairIds((prev) => {
+        const sanitized = sanitizeMnaPairIds(prev);
+        if (sanitized.length <= 1) {
+          notify("At least one M&A pair should stay visible.", "info");
+          return sanitized;
+        }
+        return sanitized.filter((_, itemIndex) => itemIndex !== index);
+      });
+    },
+    [notify]
+  );
+
+  const isMnaPairOptionDisabled = useCallback(
+    (index, pairId) => {
+      return activeMnaPairIds.some((openPairId, openIndex) => openPairId === pairId && openIndex !== index);
+    },
+    [activeMnaPairIds]
+  );
+
+  const isMnaPeerPriceVisible = useCallback(
+    (pairId, ticker) => {
+      const key = buildMnaPeerVisibilityKey(pairId, ticker);
+      return Boolean(mnaPeerPriceVisibility[key]);
+    },
+    [mnaPeerPriceVisibility]
+  );
+
+  const setMnaPeerPriceVisible = useCallback((pairId, ticker, nextValue) => {
+    const key = buildMnaPeerVisibilityKey(pairId, ticker);
+    setMnaPeerPriceVisibility((prev) => ({
+      ...prev,
+      [key]: Boolean(nextValue),
+    }));
+  }, []);
 
   const addBookPanel = useCallback(() => {
     setBookPanels((prev) => {
@@ -1493,6 +1685,7 @@ function App() {
     setBookPanels([{ id: BOOK_PANEL_PRIMARY_ID, ticker: "" }]);
     setBooksByTicker({});
     setHistory([]);
+    setMnaHistoryByTicker({});
     setOrders([]);
     setBookExtraRows({});
     bookExtraRowsRef.current = {};
@@ -2282,6 +2475,66 @@ function App() {
     selectedTicker,
   ]);
 
+  useEffect(() => {
+    if (!isMergerArbCase || !config || caseInfo?.tick == null) return;
+    const tickers = Array.from(
+      new Set(
+        activeMnaPairs.flatMap((pair) => [pair.targetTicker, pair.acquirerTicker]).filter(Boolean)
+      )
+    );
+    if (!tickers.length) return;
+    let stop = false;
+
+    const pull = async () => {
+      const periodLimit = Number(caseInfo?.ticks_per_period) || 300;
+      const limit = Math.max(120, periodLimit);
+      const settled = await Promise.all(
+        tickers.map(async (ticker) => {
+          try {
+            const rows = await apiGet("/securities/history", { ticker, limit });
+            return [ticker, Array.isArray(rows) ? rows : []];
+          } catch (error) {
+            if (error?.status !== 429) {
+              log(`Pair history error (${ticker}): ${error.message}`, "error");
+              maybeSuggestProxy(error);
+            }
+            return [ticker, null];
+          }
+        })
+      );
+      if (stop) return;
+      setMnaHistoryByTicker((prev) => {
+        const next = { ...prev };
+        settled.forEach(([ticker, rows]) => {
+          if (Array.isArray(rows)) {
+            next[ticker] = rows;
+          }
+        });
+        return next;
+      });
+    };
+
+    pull();
+    return () => {
+      stop = true;
+    };
+  }, [
+    activeMnaPairs,
+    apiGet,
+    caseInfo?.tick,
+    caseInfo?.ticks_per_period,
+    config,
+    historyEpoch,
+    isMergerArbCase,
+    log,
+    maybeSuggestProxy,
+  ]);
+
+  useEffect(() => {
+    if (isMergerArbCase) return;
+    setMnaHistoryByTicker({});
+  }, [isMergerArbCase]);
+
   const handleCancel = async (orderId) => {
     if (!config) return;
     try {
@@ -3062,42 +3315,7 @@ function App() {
   }, [dealPoints]);
 
   const fillMarkers = useMemo(() => {
-    if (!fills.length || !selectedTicker) {
-      return { opens: [], closes: [] };
-    }
-    const filtered = fills
-      .filter(
-        (fill) =>
-          fill.ticker === selectedTicker &&
-          Number.isFinite(Number(fill.tick)) &&
-          Number.isFinite(Number(fill.vwap ?? fill.price))
-      )
-      .sort((a, b) => {
-        const tickA = Number(a.tick ?? 0);
-        const tickB = Number(b.tick ?? 0);
-        if (tickA !== tickB) return tickA - tickB;
-        return Number(a.order_id ?? 0) - Number(b.order_id ?? 0);
-      });
-    const opens = [];
-    const closes = [];
-    let position = 0;
-    filtered.forEach((fill) => {
-      const qty = Number(fill.quantity_filled ?? fill.quantity ?? fill.qty ?? 0);
-      const signed = fill.action === "BUY" ? qty : -qty;
-      const before = position;
-      position += signed;
-      if (before === 0 && position !== 0) {
-        opens.push(fill);
-      }
-      if (position === 0 && before !== 0) {
-        closes.push(fill);
-      }
-      if ((before > 0 && position < 0) || (before < 0 && position > 0)) {
-        closes.push(fill);
-        opens.push(fill);
-      }
-    });
-    return { opens, closes };
+    return buildFillMarkersForTicker(fills, selectedTicker);
   }, [fills, selectedTicker]);
 
   const openFillPoints = useMemo(
@@ -3125,46 +3343,12 @@ function App() {
   );
 
   const orderLevels = useMemo(() => {
-    if (!selectedTicker) {
-      return { limit: [], stopLoss: [], takeProfit: [] };
-    }
     const decimals = decimalsByTicker.get(selectedTicker) ?? 2;
-    const limitByKey = new Map();
-    const stopByKey = new Map();
-    const takeByKey = new Map();
-    orders.forEach((order) => {
-      if (order?.ticker !== selectedTicker) return;
-      const side = String(order.action || "").toUpperCase() === "SELL" ? "SELL" : "BUY";
-      const type = String(order.type || "").toUpperCase();
-      const orderPrice = firstFinite(order?.price);
-      const stopLoss = getOrderStopLoss(order);
-      const takeProfit = getOrderTakeProfit(order);
-
-      if (type === "LIMIT" && orderPrice != null) {
-        const level = Number(orderPrice).toFixed(decimals);
-        const key = `${side}:${level}`;
-        const existing = limitByKey.get(key) || { price: Number(level), side, count: 0 };
-        existing.count += 1;
-        limitByKey.set(key, existing);
-      }
-      if (stopLoss != null) {
-        const key = Number(stopLoss).toFixed(decimals);
-        const existing = stopByKey.get(key) || { price: Number(key), count: 0 };
-        existing.count += 1;
-        stopByKey.set(key, existing);
-      }
-      if (takeProfit != null) {
-        const key = Number(takeProfit).toFixed(decimals);
-        const existing = takeByKey.get(key) || { price: Number(key), count: 0 };
-        existing.count += 1;
-        takeByKey.set(key, existing);
-      }
+    return buildOrderLevelsForTicker({
+      orders,
+      ticker: selectedTicker,
+      decimals,
     });
-    return {
-      limit: Array.from(limitByKey.values()).sort((a, b) => a.price - b.price),
-      stopLoss: Array.from(stopByKey.values()).sort((a, b) => a.price - b.price),
-      takeProfit: Array.from(takeByKey.values()).sort((a, b) => a.price - b.price),
-    };
   }, [decimalsByTicker, orders, selectedTicker]);
 
   const orderLevelTraces = useMemo(() => {
@@ -3208,6 +3392,74 @@ function App() {
     });
     return traces;
   }, [candleData, orderLevels]);
+
+  const getTickerLivePrice = useCallback(
+    (ticker) => {
+      if (!ticker) return null;
+      const sec = securityByTicker.get(ticker) || {};
+      const bid = firstFinite(sec.bid);
+      const ask = firstFinite(sec.ask);
+      const last = firstFinite(sec.last);
+      const mid =
+        bid != null && ask != null
+          ? (bid + ask) / 2
+          : firstFinite(last, bid, ask);
+      return firstFinite(mid, last, bid, ask);
+    },
+    [securityByTicker]
+  );
+
+  const selectedMnaReferenceLevels = useMemo(() => {
+    if (!isMergerArbCase || !selectedTicker) return [];
+    const pair = activeMnaPairs.find(
+      (item) => item.targetTicker === selectedTicker || item.acquirerTicker === selectedTicker
+    );
+    if (!pair) return [];
+
+    const levels = [];
+    if (pair.targetTicker === selectedTicker) {
+      const targetPrice = deriveMnaTargetPrice(pair, getTickerLivePrice(pair.acquirerTicker));
+      if (Number.isFinite(targetPrice)) {
+        levels.push({
+          price: targetPrice,
+          label: "Deal target",
+          color: "rgba(124, 58, 237, 0.9)",
+          style: "dash",
+        });
+      }
+    }
+    const peerTicker = pair.targetTicker === selectedTicker ? pair.acquirerTicker : pair.targetTicker;
+    const peerPrice = getTickerLivePrice(peerTicker);
+    if (Number.isFinite(peerPrice)) {
+      levels.push({
+        price: peerPrice,
+        label: `${peerTicker} ref`,
+        color: "rgba(71, 85, 105, 0.9)",
+        style: "dot",
+      });
+    }
+    return levels;
+  }, [activeMnaPairs, getTickerLivePrice, isMergerArbCase, selectedTicker]);
+
+  const selectedMnaReferenceTraces = useMemo(() => {
+    if (!candleData?.x?.length) return [];
+    const xStart = candleData.x[0];
+    const xEnd = candleData.x[candleData.x.length - 1];
+    return selectedMnaReferenceLevels
+      .filter((level) => Number.isFinite(Number(level.price)))
+      .map((level) => ({
+        type: "scatter",
+        mode: "lines",
+        name: level.label || "Reference",
+        x: [xStart, xEnd],
+        y: [level.price, level.price],
+        line: {
+          color: level.color || "rgba(71, 85, 105, 0.9)",
+          width: 1.1,
+          dash: level.style === "dot" ? "dot" : level.style === "dash" ? "dash" : "solid",
+        },
+      }));
+  }, [candleData, selectedMnaReferenceLevels]);
 
   const indicatorTraces = useMemo(() => {
     if (!indicatorData) return [];
@@ -3292,6 +3544,7 @@ function App() {
         },
         ...(dealTrace ? [dealTrace] : []),
         ...orderLevelTraces,
+        ...selectedMnaReferenceTraces,
         ...(openFillPoints.length
           ? [
               {
@@ -3405,20 +3658,21 @@ function App() {
     });
   }, []);
 
-  const handleChartTradeIntent = async (button, clickedPrice) => {
-    if (!config || !selectedTicker || !Number.isFinite(clickedPrice)) return;
-    const decimals = decimalsByTicker.get(selectedTicker) ?? 2;
+  const handleChartTradeIntentForTicker = async (ticker, button, clickedPrice) => {
+    if (!config || !ticker || !Number.isFinite(clickedPrice)) return;
+    const decimals = decimalsByTicker.get(ticker) ?? 2;
     const normalizedPrice = Number(Number(clickedPrice).toFixed(decimals));
-    const bidValue = firstFinite(bestBidPrice);
-    const askValue = firstFinite(bestAskPrice);
+    const security = securityByTicker.get(ticker) || {};
+    const bidValue = firstFinite(security.bid);
+    const askValue = firstFinite(security.ask);
     const liveMid = firstFinite(
-      midPrice,
       bidValue != null && askValue != null
         ? (bidValue + askValue) / 2
         : null,
+      security.mid,
+      security.last,
       bidValue,
-      askValue,
-      lastPrice
+      askValue
     );
     if (liveMid == null) {
       notify("Cannot trade from chart yet, waiting for live price.", "info");
@@ -3427,8 +3681,262 @@ function App() {
     const action = button === "right" ? "SELL" : "BUY";
     const isMarket =
       action === "BUY" ? normalizedPrice > liveMid : normalizedPrice < liveMid;
-    await placeQuickOrder(selectedTicker, action, normalizedPrice, isMarket, "chart");
+    await placeQuickOrder(ticker, action, normalizedPrice, isMarket, "chart");
   };
+
+  const handleChartTradeIntent = async (button, clickedPrice) => {
+    await handleChartTradeIntentForTicker(selectedTicker, button, clickedPrice);
+  };
+
+  const buildHorizontalTraces = useCallback((xStart, xEnd, referenceLevels) => {
+    return referenceLevels
+      .filter((level) => Number.isFinite(Number(level.price)))
+      .map((level) => ({
+        type: "scatter",
+        mode: "lines",
+        name: level.label || "Reference",
+        x: [xStart, xEnd],
+        y: [level.price, level.price],
+        line: {
+          color: level.color || "rgba(71, 85, 105, 0.9)",
+          width: level.width ?? 1.1,
+          dash: level.style === "dot" ? "dot" : level.style === "dash" ? "dash" : "solid",
+        },
+      }));
+  }, []);
+
+  const mnaChartModelsByTicker = useMemo(() => {
+    if (!isMergerArbCase) return new Map();
+    const tickers = Array.from(
+      new Set(
+        activeMnaPairs.flatMap((pair) => [pair.targetTicker, pair.acquirerTicker]).filter(Boolean)
+      )
+    );
+    const next = new Map();
+    tickers.forEach((ticker) => {
+      const rows = mnaHistoryByTicker[ticker] || (ticker === selectedTicker ? history : []);
+      const tickerCandles = aggregateCandles(rows, CANDLE_BUCKET);
+      const markerSet = buildFillMarkersForTicker(fills, ticker);
+      const openPoints = markerSet.opens
+        .map((fill) => ({
+          tick: toBucketTick(Number(fill.tick)),
+          price: Number(fill.vwap ?? fill.price),
+          side: fill.action === "BUY" ? "BUY" : "SELL",
+        }))
+        .filter((fill) => Number.isFinite(fill.tick) && Number.isFinite(fill.price));
+      const closePoints = markerSet.closes
+        .map((fill) => ({
+          tick: toBucketTick(Number(fill.tick)),
+          price: Number(fill.vwap ?? fill.price),
+          side: fill.action === "BUY" ? "BUY" : "SELL",
+        }))
+        .filter((fill) => Number.isFinite(fill.tick) && Number.isFinite(fill.price));
+      const dealMarks =
+        ticker === selectedTicker
+          ? tasTrades
+              .map((trade) => ({
+                tick: toBucketTick(Number(trade.tick)),
+                price: Number(trade.price),
+              }))
+              .filter((trade) => Number.isFinite(trade.tick) && Number.isFinite(trade.price))
+          : [];
+      const decimals = decimalsByTicker.get(ticker) ?? 2;
+      const levels = buildOrderLevelsForTicker({
+        orders,
+        ticker,
+        decimals,
+      });
+      next.set(ticker, {
+        candles: tickerCandles,
+        dealPoints: dealMarks,
+        openFillPoints: openPoints,
+        closeFillPoints: closePoints,
+        orderLevels: levels,
+      });
+    });
+    return next;
+  }, [
+    activeMnaPairs,
+    decimalsByTicker,
+    fills,
+    history,
+    isMergerArbCase,
+    mnaHistoryByTicker,
+    orders,
+    selectedTicker,
+    tasTrades,
+  ]);
+
+  const renderMnaTickerChart = ({ pair, ticker, peerTicker }) => {
+      const model = mnaChartModelsByTicker.get(ticker);
+      const candlesForTicker = model?.candles || [];
+      if (!candlesForTicker.length) {
+        return <div className="muted">No candle history yet for {ticker}.</div>;
+      }
+
+      const referenceLevels = [];
+      if (ticker === pair.targetTicker) {
+        const targetPrice = deriveMnaTargetPrice(pair, getTickerLivePrice(pair.acquirerTicker));
+        if (Number.isFinite(targetPrice)) {
+          referenceLevels.push({
+            price: targetPrice,
+            label: "Deal target",
+            color: "rgba(124, 58, 237, 0.9)",
+            style: "dash",
+          });
+        }
+      }
+      if (isMnaPeerPriceVisible(pair.id, ticker)) {
+        const peerPrice = getTickerLivePrice(peerTicker);
+        if (Number.isFinite(peerPrice)) {
+          referenceLevels.push({
+            price: peerPrice,
+            label: `${peerTicker} price`,
+            color: "rgba(71, 85, 105, 0.9)",
+            style: "dot",
+          });
+        }
+      }
+
+      const ticks = candlesForTicker.map((candle) => candle.tick);
+      const xStart = ticks[0];
+      const xEnd = ticks[ticks.length - 1];
+      const orderLines = [
+        ...model.orderLevels.limit.map((level) => ({
+          price: level.price,
+          label: level.side === "BUY" ? `LMT B (${level.count})` : `LMT S (${level.count})`,
+          color: level.side === "BUY" ? "rgba(37, 99, 235, 0.9)" : "rgba(249, 115, 22, 0.9)",
+          style: "dot",
+          width: 1.25,
+        })),
+        ...model.orderLevels.stopLoss.map((level) => ({
+          price: level.price,
+          label: `SL (${level.count})`,
+          color: "rgba(220, 38, 38, 0.85)",
+          style: "dash",
+        })),
+        ...model.orderLevels.takeProfit.map((level) => ({
+          price: level.price,
+          label: `TP (${level.count})`,
+          color: "rgba(22, 163, 74, 0.85)",
+          style: "dash",
+        })),
+      ];
+
+      const plotlyDataForPair = [
+        {
+          type: "candlestick",
+          x: ticks,
+          open: candlesForTicker.map((candle) => candle.open),
+          high: candlesForTicker.map((candle) => candle.high),
+          low: candlesForTicker.map((candle) => candle.low),
+          close: candlesForTicker.map((candle) => candle.close),
+          increasing: { line: { color: "#2E8B57" } },
+          decreasing: { line: { color: "#C0392B" } },
+        },
+        ...(model.dealPoints.length
+          ? [
+              {
+                type: "scatter",
+                mode: "markers",
+                name: "Deals",
+                x: model.dealPoints.map((point) => point.tick),
+                y: model.dealPoints.map((point) => point.price),
+                marker: { size: 6, color: "rgba(148, 163, 184, 0.55)" },
+              },
+            ]
+          : []),
+        ...buildHorizontalTraces(xStart, xEnd, orderLines),
+        ...buildHorizontalTraces(xStart, xEnd, referenceLevels),
+        ...(model.openFillPoints.length
+          ? [
+              {
+                type: "scatter",
+                mode: "markers",
+                name: "Position Open",
+                x: model.openFillPoints.map((fill) => fill.tick),
+                y: model.openFillPoints.map((fill) => fill.price),
+                marker: {
+                  size: 11,
+                  symbol: model.openFillPoints.map((fill) =>
+                    fill.side === "BUY" ? "triangle-up" : "triangle-down"
+                  ),
+                  color: model.openFillPoints.map((fill) =>
+                    fill.side === "BUY" ? "#22c55e" : "#ef4444"
+                  ),
+                  line: { width: 1.5, color: "rgba(15, 23, 42, 0.25)" },
+                },
+              },
+            ]
+          : []),
+        ...(model.closeFillPoints.length
+          ? [
+              {
+                type: "scatter",
+                mode: "markers",
+                name: "Position Close",
+                x: model.closeFillPoints.map((fill) => fill.tick),
+                y: model.closeFillPoints.map((fill) => fill.price),
+                marker: {
+                  size: 9,
+                  symbol: model.closeFillPoints.map((fill) =>
+                    fill.side === "BUY" ? "triangle-up" : "triangle-down"
+                  ),
+                  color: model.closeFillPoints.map((fill) =>
+                    fill.side === "BUY" ? "#22c55e" : "#ef4444"
+                  ),
+                  line: { width: 1.2, color: "rgba(15, 23, 42, 0.25)" },
+                  opacity: 0.85,
+                },
+              },
+            ]
+          : []),
+      ];
+
+      const plotlyLayoutForPair = {
+        paper_bgcolor: "#ffffff",
+        plot_bgcolor: chartPlotBg,
+        margin: { l: 40, r: 20, t: 30, b: 30 },
+        dragmode: "zoom",
+        font: { color: chartTextColor },
+        xaxis: {
+          title: "Tick",
+          gridcolor: chartGridColor,
+          tickfont: { size: 10, color: chartTextColor },
+          rangeslider: { visible: showRangeSlider },
+        },
+        yaxis: {
+          title: "Price",
+          gridcolor: chartGridColor,
+          tickfont: { size: 10, color: chartTextColor },
+        },
+        uirevision: `${pair.id}-${ticker}`,
+      };
+
+      return (
+        <CandlesRenderer
+          renderer={chartRenderer}
+          candles={candlesForTicker}
+          dealPoints={model.dealPoints}
+          openFillPoints={model.openFillPoints}
+          closeFillPoints={model.closeFillPoints}
+          limitLevels={model.orderLevels.limit}
+          stopLossLevels={model.orderLevels.stopLoss}
+          takeProfitLevels={model.orderLevels.takeProfit}
+          referenceLevels={referenceLevels}
+          showRangeSlider={showRangeSlider}
+          theme={theme}
+          height={320}
+          plotlyData={plotlyDataForPair}
+          plotlyLayout={plotlyLayoutForPair}
+          plotlyConfig={chartConfig}
+          onChartTradeIntent={(button, price) =>
+            handleChartTradeIntentForTicker(ticker, button, price)
+          }
+          chartTradingEnabled={Boolean(config && chartMouseTrading)}
+        />
+      );
+    };
 
   const openPositionRows = useMemo(() => {
     return securities
@@ -3672,7 +4180,7 @@ function App() {
   const renderChartPanel = (inline = false) => (
     <div className={`orderbook-candles ${inline ? "orderbook-candles--inline" : ""}`}>
       <div className="card-title chart-header">
-        <span>Candles</span>
+        <span>{isMergerArbCase ? "Merger Pair Candles" : "Candles"}</span>
         <button
           type="button"
           className="ghost"
@@ -3783,6 +4291,11 @@ function App() {
             Chart trading: LMB = buy (below mid limit, above mid market), RMB = sell (above mid limit, below mid market).
             {chartMouseTrading ? " Trading is active." : " Enable it before sending chart orders."}
           </div>
+          {isMergerArbCase && (
+            <div className="muted chart-engine-hint">
+              Merger mode opens target/acquirer charts in pairs and draws deal target levels on target-company charts.
+            </div>
+          )}
           {chartRendererMeta.supportsIndicators ? (
             <details className="indicator-menu">
               <summary>Indicators ({INDICATORS.length})</summary>
@@ -3823,7 +4336,21 @@ function App() {
           )}
         </div>
       )}
-      {candles.length === 0 ? (
+      {isMergerArbCase ? (
+        <MnaPairsSection
+          activePairIds={activeMnaPairIds}
+          pairOptions={MNA_CASE_PAIRS}
+          pairById={MNA_CASE_PAIR_BY_ID}
+          onAddPair={addMnaPair}
+          onRemovePair={removeMnaPairAt}
+          onChangePair={updateMnaPairAt}
+          canAddPair={canAddMnaPair}
+          isPairOptionDisabled={isMnaPairOptionDisabled}
+          isPeerPriceVisible={isMnaPeerPriceVisible}
+          onPeerPriceToggle={setMnaPeerPriceVisible}
+          renderTickerChart={renderMnaTickerChart}
+        />
+      ) : candles.length === 0 ? (
         <div className="muted">No candle history yet.</div>
       ) : (
         <CandlesRenderer
@@ -3835,6 +4362,7 @@ function App() {
           limitLevels={orderLevels.limit}
           stopLossLevels={orderLevels.stopLoss}
           takeProfitLevels={orderLevels.takeProfit}
+          referenceLevels={selectedMnaReferenceLevels}
           showRangeSlider={showRangeSlider}
           theme={theme}
           height={chartPanelHeight}

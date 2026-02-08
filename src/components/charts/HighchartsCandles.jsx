@@ -13,6 +13,7 @@ export default function HighchartsCandles({
   limitLevels,
   stopLossLevels,
   takeProfitLevels,
+  referenceLevels,
   showRangeSlider,
   theme,
   height,
@@ -112,6 +113,21 @@ export default function HighchartsCandles({
           marker: { enabled: false },
           enableMouseTracking: true,
         })),
+        ...referenceLevels.map((level) => ({
+          type: "line",
+          name: level.label || "Reference",
+          data: candles.map((candle) => [candle.tick, level.price]),
+          color: level.color || "#475569",
+          dashStyle:
+            level.style === "dot"
+              ? "Dot"
+              : level.style === "dash"
+                ? "Dash"
+                : "Solid",
+          lineWidth: 1.1,
+          marker: { enabled: false },
+          enableMouseTracking: true,
+        })),
         ...(dealPoints.length
           ? [
               {
@@ -176,6 +192,7 @@ export default function HighchartsCandles({
     height,
     limitLevels,
     openFillPoints,
+    referenceLevels,
     showRangeSlider,
     stopLossLevels,
     takeProfitLevels,

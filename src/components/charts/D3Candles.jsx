@@ -16,6 +16,7 @@ export default function D3Candles({
   limitLevels,
   stopLossLevels,
   takeProfitLevels,
+  referenceLevels,
   theme,
   height,
 }) {
@@ -120,6 +121,17 @@ export default function D3Candles({
         color: "#16a34a",
         dash: "4,3",
       })),
+      ...referenceLevels.map((level) => ({
+        price: level.price,
+        label: level.label || "Reference",
+        color: level.color || "#475569",
+        dash:
+          level.style === "dot"
+            ? "2,2"
+            : level.style === "dash"
+              ? "4,3"
+              : null,
+      })),
     ];
 
     const levelLayer = svg.append("g");
@@ -223,6 +235,7 @@ export default function D3Candles({
     height,
     limitLevels,
     openFillPoints,
+    referenceLevels,
     stopLossLevels,
     takeProfitLevels,
     theme,

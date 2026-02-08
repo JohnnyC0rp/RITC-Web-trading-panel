@@ -1426,6 +1426,99 @@ button.full {
   background: #ffffff;
 }
 
+.mna-pairs {
+  display: grid;
+  gap: 12px;
+}
+
+.mna-pairs-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mna-pairs-list {
+  display: grid;
+  gap: 12px;
+}
+
+.mna-pair-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.mna-pair-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mna-pair-select {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+}
+
+.mna-pair-select span {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.mna-pair-select select {
+  min-width: 180px;
+}
+
+.mna-chip {
+  font-size: 0.68rem;
+  line-height: 1.2;
+  padding: 5px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(15, 23, 42, 0.05);
+  color: #0f172a;
+}
+
+.mna-pair-description {
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.mna-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mna-chart-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  padding: 8px;
+  background: #ffffff;
+}
+
+.mna-chart-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.mna-peer-toggle {
+  font-size: 0.75rem;
+  color: #334155;
+}
+
 .api-lab {
   display: grid;
   gap: 16px;
@@ -2191,6 +2284,23 @@ button.full {
   border-color: rgba(148, 163, 184, 0.2);
 }
 
+.app[data-theme="dark"] .mna-chip {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.6);
+  color: #e2e8f0;
+}
+
+.app[data-theme="dark"] .mna-pair-description,
+.app[data-theme="dark"] .mna-peer-toggle {
+  color: #cbd5e1;
+}
+
+.app[data-theme="dark"] .mna-pair-card,
+.app[data-theme="dark"] .mna-chart-panel {
+  background: rgba(15, 23, 42, 0.75);
+  border-color: rgba(148, 163, 184, 0.25);
+}
+
 .app[data-theme="dark"] .terminal-metric-row {
   background: rgba(148, 163, 184, 0.1);
 }
@@ -2257,6 +2367,10 @@ button.full {
   }
 
   .orderbook-layout.single {
+    grid-template-columns: 1fr;
+  }
+
+  .mna-chart-grid {
     grid-template-columns: 1fr;
   }
 

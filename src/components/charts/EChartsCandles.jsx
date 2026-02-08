@@ -12,6 +12,7 @@ export default function EChartsCandles({
   limitLevels,
   stopLossLevels,
   takeProfitLevels,
+  referenceLevels,
   showRangeSlider,
   theme,
   height,
@@ -43,6 +44,20 @@ export default function EChartsCandles({
         name: `TP x${level.count}`,
         yAxis: level.price,
         lineStyle: { color: "#16a34a", type: "dashed", width: 1.1 },
+      })),
+      ...referenceLevels.map((level) => ({
+        name: level.label || "Reference",
+        yAxis: level.price,
+        lineStyle: {
+          color: level.color || "#475569",
+          type:
+            level.style === "dot"
+              ? "dotted"
+              : level.style === "dash"
+                ? "dashed"
+                : "solid",
+          width: 1.1,
+        },
       })),
     ];
 
@@ -174,6 +189,7 @@ export default function EChartsCandles({
     dealPoints,
     limitLevels,
     openFillPoints,
+    referenceLevels,
     showRangeSlider,
     stopLossLevels,
     takeProfitLevels,

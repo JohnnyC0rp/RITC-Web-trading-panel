@@ -13,6 +13,7 @@ export default function LightweightCandles({
   limitLevels,
   stopLossLevels,
   takeProfitLevels,
+  referenceLevels,
   onChartTradeIntent,
   chartTradingEnabled,
   theme,
@@ -118,6 +119,12 @@ export default function LightweightCandles({
 
     candleSeries.setMarkers(markerData);
 
+    const resolveLineStyle = (style) => {
+      if (style === "dot") return 1;
+      if (style === "dash") return 2;
+      return 0;
+    };
+
     const addPriceLine = (price, title, color, lineStyle = 2) => {
       const numeric = Number(price);
       if (!Number.isFinite(numeric)) return null;
@@ -147,6 +154,16 @@ export default function LightweightCandles({
         .filter(Boolean),
       ...takeProfitLevels
         .map((level) => addPriceLine(level.price, `TP x${level.count}`, "#16a34a", 2))
+        .filter(Boolean),
+      ...referenceLevels
+        .map((level) =>
+          addPriceLine(
+            level.price,
+            level.label || "Ref",
+            level.color || "#475569",
+            resolveLineStyle(level.style)
+          )
+        )
         .filter(Boolean),
     ];
 
@@ -200,6 +217,7 @@ export default function LightweightCandles({
     limitLevels,
     onChartTradeIntent,
     openFillPoints,
+    referenceLevels,
     stopLossLevels,
     takeProfitLevels,
     theme,

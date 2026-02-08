@@ -13,6 +13,7 @@ export default function CandlesRenderer({
   limitLevels,
   stopLossLevels,
   takeProfitLevels,
+  referenceLevels = [],
   showRangeSlider,
   theme,
   height,
@@ -33,6 +34,7 @@ export default function CandlesRenderer({
         limitLevels={limitLevels}
         stopLossLevels={stopLossLevels}
         takeProfitLevels={takeProfitLevels}
+        referenceLevels={referenceLevels}
         onChartTradeIntent={onChartTradeIntent}
         chartTradingEnabled={chartTradingEnabled}
         theme={theme}
@@ -51,6 +53,7 @@ export default function CandlesRenderer({
         limitLevels={limitLevels}
         stopLossLevels={stopLossLevels}
         takeProfitLevels={takeProfitLevels}
+        referenceLevels={referenceLevels}
         showRangeSlider={showRangeSlider}
         theme={theme}
         height={height}
@@ -68,6 +71,7 @@ export default function CandlesRenderer({
         limitLevels={limitLevels}
         stopLossLevels={stopLossLevels}
         takeProfitLevels={takeProfitLevels}
+        referenceLevels={referenceLevels}
         showRangeSlider={showRangeSlider}
         theme={theme}
         height={height}
@@ -85,6 +89,7 @@ export default function CandlesRenderer({
         limitLevels={limitLevels}
         stopLossLevels={stopLossLevels}
         takeProfitLevels={takeProfitLevels}
+        referenceLevels={referenceLevels}
         theme={theme}
         height={height}
       />
