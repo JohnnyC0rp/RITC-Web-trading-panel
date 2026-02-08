@@ -2403,8 +2403,10 @@ function App() {
         ? toStepTick((bestBidNumber + bestAskNumber) / 2, priceStep)
         : liveMidTick;
       const position = isCaseStopped ? null : positionMap.get(ticker) || null;
-      const positionQty = Number(position?.qty ?? 0);
-      const entryPrice = Number(position?.avg);
+      const fallbackQty = Number(security.position ?? security.pos ?? security.qty ?? 0);
+      const fallbackAvg = Number(security.avg ?? security.vwap ?? security.price ?? NaN);
+      const positionQty = Number(position?.qty ?? fallbackQty);
+      const entryPrice = Number(position?.avg ?? fallbackAvg);
       const hasPosition =
         Number.isFinite(entryPrice) &&
         Number.isFinite(positionQty) &&
@@ -2968,10 +2970,10 @@ function App() {
       .map((sec) => {
         const ticker = sec.ticker;
         if (!ticker) return null;
-        const position = positionMap.get(ticker) || {};
-        const qty = Number(position.qty ?? sec.position ?? sec.pos ?? 0);
+        const position = positionMap.get(ticker) || null;
+        const qty = Number(position?.qty ?? sec.position ?? sec.pos ?? sec.qty ?? 0);
         if (!Number.isFinite(qty) || qty === 0) return null;
-        const entry = Number(position.avg ?? position.vwap ?? position.price);
+        const entry = Number(position?.avg ?? sec.avg ?? sec.vwap ?? sec.price ?? NaN);
         const last = Number(sec.last);
         const bid = Number(sec.bid);
         const ask = Number(sec.ask);
