@@ -3042,11 +3042,20 @@ function App() {
     if (!terminalUnlocked) return;
     const container = terminalBodyRef.current;
     if (!container) return;
-    const raf = requestAnimationFrame(() => {
+    const syncScroll = () => {
       container.scrollTop = container.scrollHeight;
+    };
+    // Double RAF to catch layout + font rendering before we stick the scroll.
+    const raf1 = requestAnimationFrame(() => {
+      syncScroll();
+      const raf2 = requestAnimationFrame(syncScroll);
+      container.__raf2 = raf2;
     });
-    return () => cancelAnimationFrame(raf);
-  }, [filteredTerminalLines.length, terminalUnlocked]);
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (container.__raf2) cancelAnimationFrame(container.__raf2);
+    };
+  }, [terminalLines.length, filteredTerminalLines.length, terminalUnlocked]);
 
   const requestMetricRows = useMemo(() => {
     return Object.entries(requestMetrics)
