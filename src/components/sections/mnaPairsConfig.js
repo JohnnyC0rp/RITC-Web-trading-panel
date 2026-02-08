@@ -67,7 +67,7 @@ export const MNA_CASE_PAIRS = [
   },
 ];
 
-export const MNA_DEFAULT_PAIR_IDS = MNA_CASE_PAIRS.slice(0, 2).map((pair) => pair.id);
+export const MNA_DEFAULT_PAIR_IDS = [MNA_CASE_PAIRS[0].id];
 export const MNA_CASE_PAIR_IDS = new Set(MNA_CASE_PAIRS.map((pair) => pair.id));
 export const MNA_CASE_PAIR_BY_ID = new Map(MNA_CASE_PAIRS.map((pair) => [pair.id, pair]));
 
