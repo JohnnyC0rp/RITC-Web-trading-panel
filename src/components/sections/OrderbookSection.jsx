@@ -7,11 +7,13 @@
  */
 export default function OrderbookSection({
   requiresConnectionClass,
+  isMergerArbCase,
   bookView,
   setBookView,
   orderbookDisplayOptions,
   orderbookDisplayMode,
   setOrderbookDisplayMode,
+  isGraphOnlyMode,
   addBookPanel,
   showOrderbookPanels,
   splitOrderbookLayout,
@@ -31,29 +33,39 @@ export default function OrderbookSection({
   renderChartPanel,
 }) {
   return (
-    <section className={`card orderbook-shell ${requiresConnectionClass}`.trim()}>
+    <section
+      className={`card orderbook-shell ${isGraphOnlyMode ? "orderbook-shell--graph" : ""} ${requiresConnectionClass}`.trim()}
+    >
       <div className="orderbook-header">
         <div>
-          <div className="card-title">Order Books</div>
-          <div className="muted">Book trader or ladder trader, with compact rows.</div>
+          <div className="card-title">{isGraphOnlyMode ? "Graph Workspace" : "Order Books"}</div>
+          <div className="muted">
+            {isGraphOnlyMode
+              ? isMergerArbCase
+                ? "M&A chart mode uses the full panel for pair charts."
+                : "Graph mode dedicates the full panel to candles."
+              : "Book trader or ladder trader, with compact rows."}
+          </div>
         </div>
         <div className="orderbook-actions">
-          <div className="segmented segmented--compact">
-            <button
-              type="button"
-              className={bookView === "book" ? "active" : ""}
-              onClick={() => setBookView("book")}
-            >
-              Book Trader
-            </button>
-            <button
-              type="button"
-              className={bookView === "ladder" ? "active" : ""}
-              onClick={() => setBookView("ladder")}
-            >
-              Ladder Trader
-            </button>
-          </div>
+          {showOrderbookPanels && (
+            <div className="segmented segmented--compact">
+              <button
+                type="button"
+                className={bookView === "book" ? "active" : ""}
+                onClick={() => setBookView("book")}
+              >
+                Book Trader
+              </button>
+              <button
+                type="button"
+                className={bookView === "ladder" ? "active" : ""}
+                onClick={() => setBookView("ladder")}
+              >
+                Ladder Trader
+              </button>
+            </div>
+          )}
           <div className="segmented segmented--compact">
             {orderbookDisplayOptions.map((option) => (
               <button
@@ -66,18 +78,20 @@ export default function OrderbookSection({
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            className="ghost small"
-            onClick={addBookPanel}
-            disabled={!showOrderbookPanels}
-          >
-            Add Book
-          </button>
+          {showOrderbookPanels && (
+            <button
+              type="button"
+              className="ghost small"
+              onClick={addBookPanel}
+              disabled={!showOrderbookPanels}
+            >
+              Add Book
+            </button>
+          )}
         </div>
       </div>
 
-      <div className={`orderbook-layout ${splitOrderbookLayout ? "single" : "multi"}`}>
+      <div className={`orderbook-layout ${isGraphOnlyMode ? "graph" : splitOrderbookLayout ? "single" : "multi"}`}>
         {showOrderbookPanels && (
           <div className="orderbook-grid">
             {bookStates.map(({ panel, state }) => {

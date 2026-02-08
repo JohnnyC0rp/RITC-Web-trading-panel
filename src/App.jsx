@@ -53,8 +53,8 @@ const TUTORIAL_SEEN_KEY = "privodJohnnyTutorialSeenV2";
 const UPDATE_SOURCE_PATH = `${import.meta.env.BASE_URL}versions.txt`;
 const UPDATE_SEPARATOR = "==================";
 
-const FAST_POLL_MS = 100;
-const INFO_POLL_MS = 200;
+const FAST_POLL_MS = 300;
+const INFO_POLL_MS = 600;
 const POLL_INTERVALS_MS = {
   case: INFO_POLL_MS,
   book: FAST_POLL_MS,
@@ -80,16 +80,15 @@ const FAST_POLL_ENDPOINTS = [
 ];
 const FAST_POLL_KEYS = new Set(FAST_POLL_ENDPOINTS.map((endpoint) => endpoint.key));
 const BOOK_DEPTH_LIMIT = 1000;
-const BOOK_POLL_MAX_MS = 1000;
-const BOOK_POLL_BACKOFF_MS = 100;
+const BOOK_POLL_MAX_MS = 1800;
+const BOOK_POLL_BACKOFF_MS = 250;
 const BOOK_ROW_HEIGHT_PX = 20;
 const BOOK_EDGE_BUFFER_TICKS = 10;
 const PNL_TICK_STEP = 5;
 const CANDLE_BUCKET = 5;
 const ORDERBOOK_DISPLAY_OPTIONS = [
-  { id: "both", label: "Books + Candles" },
-  { id: "books", label: "Books Only" },
-  { id: "candles", label: "Candles Only" },
+  { id: "book", label: "Order Book View" },
+  { id: "graph", label: "Graph View" },
 ];
 const DEFAULT_ORDERBOOK_DISPLAY = ORDERBOOK_DISPLAY_OPTIONS[0].id;
 const DEFAULT_BRACKET_SETTINGS = {
@@ -1049,6 +1048,8 @@ function App() {
   const pnlUpdateRef = useRef({ tick: null, realized: null, unrealized: null });
   const terminalBodyRef = useRef(null);
   const clearNewsSortKeyRef = useRef(null);
+  const endpointRateLimitUntilRef = useRef(new Map());
+  const mnaGraphDefaultRef = useRef(null);
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
   const [proxyTargetRemote, setProxyTargetRemote] = useState("remote");
@@ -1163,11 +1164,17 @@ function App() {
       if (typeof stored.showRangeSlider === "boolean") setShowRangeSlider(stored.showRangeSlider);
       if (typeof stored.showChartSettings === "boolean") setShowChartSettings(stored.showChartSettings);
       if (stored.bookView) setBookView(stored.bookView);
+      const normalizedDisplayMode =
+        stored.orderbookDisplayMode === "candles"
+          ? "graph"
+          : stored.orderbookDisplayMode === "books" || stored.orderbookDisplayMode === "both"
+            ? "book"
+            : stored.orderbookDisplayMode;
       if (
-        stored.orderbookDisplayMode &&
-        ORDERBOOK_DISPLAY_OPTIONS.some((option) => option.id === stored.orderbookDisplayMode)
+        normalizedDisplayMode &&
+        ORDERBOOK_DISPLAY_OPTIONS.some((option) => option.id === normalizedDisplayMode)
       ) {
-        setOrderbookDisplayMode(stored.orderbookDisplayMode);
+        setOrderbookDisplayMode(normalizedDisplayMode);
       }
       if (stored.bracketDefaults) {
         setBracketDefaults((prev) => ({
@@ -1348,6 +1355,30 @@ function App() {
     return label.includes("merger") && label.includes("arbitrage");
   }, [caseInfo?.case, caseInfo?.case_id, caseInfo?.name, mode, remoteConfig.caseId]);
 
+  useEffect(() => {
+    if (!uiPrefsHydrated) return;
+    if (!isMergerArbCase) {
+      mnaGraphDefaultRef.current = null;
+      return;
+    }
+    const caseKey =
+      caseInfo?.name ??
+      caseInfo?.case_id ??
+      caseInfo?.case ??
+      remoteConfig.caseId ??
+      "merger-arbitrage";
+    if (mnaGraphDefaultRef.current === caseKey) return;
+    mnaGraphDefaultRef.current = caseKey;
+    setOrderbookDisplayMode("graph");
+  }, [
+    caseInfo?.case,
+    caseInfo?.case_id,
+    caseInfo?.name,
+    isMergerArbCase,
+    remoteConfig.caseId,
+    uiPrefsHydrated,
+  ]);
+
   const activeMnaPairIds = useMemo(
     () => sanitizeMnaPairIds(mnaPairIds),
     [mnaPairIds]
@@ -1495,11 +1526,19 @@ function App() {
         ...(options.headers || {}),
       };
       const method = (options.method || "GET").toUpperCase();
+      const requestKey = `${method} ${path}`;
+      const nowMs = Date.now();
+      const cooldownUntil = endpointRateLimitUntilRef.current.get(requestKey) || 0;
+      if (cooldownUntil > nowMs) {
+        const error = new Error("HTTP 429");
+        error.status = 429;
+        error.__silent = true;
+        throw error;
+      }
       const startedAt = performance.now();
       const recordMetric = (status, durationMs) => {
-        const key = `${method} ${path}`;
         setRequestMetrics((prev) => {
-          const existing = prev[key] || {
+          const existing = prev[requestKey] || {
             count: 0,
             totalMs: 0,
             avgMs: 0,
@@ -1510,7 +1549,7 @@ function App() {
           const totalMs = existing.totalMs + durationMs;
           return {
             ...prev,
-            [key]: {
+            [requestKey]: {
               count,
               totalMs,
               avgMs: totalMs / count,
@@ -1519,15 +1558,29 @@ function App() {
             },
           };
         });
-        if (!FAST_POLL_KEYS.has(key)) return;
+        if (!FAST_POLL_KEYS.has(requestKey)) return;
         setPerfSeries((prev) => {
-          const list = prev[key] ? [...prev[key]] : [];
+          const list = prev[requestKey] ? [...prev[requestKey]] : [];
           list.push({ ts: Date.now(), ms: durationMs });
           return {
             ...prev,
-            [key]: list.slice(-MAX_PERF_POINTS),
+            [requestKey]: list.slice(-MAX_PERF_POINTS),
           };
         });
+      };
+      const parseRetryDelayMs = (response) => {
+        const raw = response.headers?.get?.("retry-after");
+        if (raw) {
+          const seconds = Number(raw);
+          if (Number.isFinite(seconds) && seconds >= 0) {
+            return Math.max(500, Math.round(seconds * 1000));
+          }
+          const retryDate = Date.parse(raw);
+          if (Number.isFinite(retryDate)) {
+            return Math.max(500, retryDate - Date.now());
+          }
+        }
+        return FAST_POLL_KEYS.has(requestKey) ? 1200 : 2500;
       };
       try {
         const res = await fetch(url, { ...options, headers });
@@ -1539,6 +1592,12 @@ function App() {
           `${method} ${path} -> ${res.status} (${Math.round(durationMs)}ms)`,
           "request"
         );
+        if (res.status === 429) {
+          const retryDelayMs = parseRetryDelayMs(res);
+          endpointRateLimitUntilRef.current.set(requestKey, Date.now() + retryDelayMs);
+        } else if (res.ok) {
+          endpointRateLimitUntilRef.current.delete(requestKey);
+        }
         if (!res.ok) {
           const error = new Error(`HTTP ${res.status}`);
           error.status = res.status;
@@ -1549,6 +1608,9 @@ function App() {
         return data;
       } catch (error) {
         if (error?.__logged) {
+          throw error;
+        }
+        if (error?.__silent) {
           throw error;
         }
         const durationMs = Math.max(0, performance.now() - startedAt);
@@ -1597,6 +1659,7 @@ function App() {
     setConnectionError("");
     setProxyHint("");
     setConnectionStatus("Connecting...");
+    endpointRateLimitUntilRef.current = new Map();
     const useProxy = mode === "local" ? useProxyLocal : useProxyRemote;
     const localProxyBase = localProxyUrl.trim() || "http://localhost:3001";
     const remoteProxyBase =
@@ -1705,6 +1768,7 @@ function App() {
     bookCenterRef.current = { connectAt: null, caseKey: null, tick1Period: null, idleAt: null };
     bookAnchorRef.current = { connectAt: null, caseKey: null, tick1Period: null, idleAt: null };
     setBookAnchors({});
+    endpointRateLimitUntilRef.current = new Map();
     log("Disconnected", "system");
   };
 
@@ -1736,6 +1800,7 @@ function App() {
   useEffect(() => {
     if (!config || !selectedTicker) return undefined;
     let stop = false;
+    const tasPollMs = orderbookDisplayMode === "graph" ? 700 : POLL_INTERVALS_MS.tas;
 
     const pull = async () => {
       try {
@@ -1781,16 +1846,17 @@ function App() {
     };
 
     pull();
-    const id = setInterval(pull, POLL_INTERVALS_MS.tas);
+    const id = setInterval(pull, tasPollMs);
     return () => {
       stop = true;
       clearInterval(id);
     };
-  }, [apiGet, config, log, maybeSuggestProxy, selectedTicker]);
+  }, [apiGet, config, log, maybeSuggestProxy, orderbookDisplayMode, selectedTicker]);
 
   useEffect(() => {
     if (!config) return undefined;
     let stop = false;
+    const fillsPollMs = orderbookDisplayMode === "graph" ? 700 : POLL_INTERVALS_MS.fills;
 
     const pull = async () => {
       try {
@@ -1823,12 +1889,12 @@ function App() {
     };
 
     pull();
-    const id = setInterval(pull, POLL_INTERVALS_MS.fills);
+    const id = setInterval(pull, fillsPollMs);
     return () => {
       stop = true;
       clearInterval(id);
     };
-  }, [apiGet, config, log, maybeSuggestProxy]);
+  }, [apiGet, config, log, maybeSuggestProxy, orderbookDisplayMode]);
 
   useEffect(() => {
     if (!fills.length) return;
@@ -2088,6 +2154,8 @@ function App() {
   useEffect(() => {
     if (!config) return undefined;
     let stop = false;
+    const securitiesPollMs =
+      orderbookDisplayMode === "graph" ? 650 : POLL_INTERVALS_MS.securities;
 
     const pull = async () => {
       try {
@@ -2102,16 +2170,17 @@ function App() {
     };
 
     pull();
-    const id = setInterval(pull, POLL_INTERVALS_MS.securities);
+    const id = setInterval(pull, securitiesPollMs);
     return () => {
       stop = true;
       clearInterval(id);
     };
-  }, [apiGet, config, log, maybeSuggestProxy]);
+  }, [apiGet, config, log, maybeSuggestProxy, orderbookDisplayMode]);
 
   useEffect(() => {
     if (!config) return undefined;
     let stop = false;
+    const tendersPollMs = orderbookDisplayMode === "graph" ? 1200 : POLL_INTERVALS_MS.tenders;
 
     const pull = async () => {
       try {
@@ -2134,12 +2203,12 @@ function App() {
     };
 
     pull();
-    const id = setInterval(pull, POLL_INTERVALS_MS.tenders);
+    const id = setInterval(pull, tendersPollMs);
     return () => {
       stop = true;
       clearInterval(id);
     };
-  }, [apiGet, config, log, playSound]);
+  }, [apiGet, config, log, orderbookDisplayMode, playSound]);
 
   useEffect(() => {
     if (!tenders.length) return;
@@ -2190,7 +2259,7 @@ function App() {
   }, [bookPanels, selectedTicker]);
 
   useEffect(() => {
-    if (!config || !bookTickers.length) return undefined;
+    if (!config || !bookTickers.length || orderbookDisplayMode !== "book") return undefined;
     let stop = false;
     let inFlight = false;
     let timeoutId = null;
@@ -2255,13 +2324,14 @@ function App() {
       stop = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [apiGet, bookTickers, config, log, maybeSuggestProxy, selectedTicker]);
+  }, [apiGet, bookTickers, config, log, maybeSuggestProxy, orderbookDisplayMode, selectedTicker]);
 
   useEffect(() => {
     if (!config) return undefined;
     let stop = false;
     let inFlight = false;
     let timeoutId = null;
+    const ordersPollMs = orderbookDisplayMode === "graph" ? 700 : POLL_INTERVALS_MS.orders;
 
     const pullOrders = async () => {
       if (stop || inFlight) return;
@@ -2323,7 +2393,7 @@ function App() {
       } finally {
         inFlight = false;
         if (!stop) {
-          timeoutId = setTimeout(pullOrders, POLL_INTERVALS_MS.orders);
+          timeoutId = setTimeout(pullOrders, ordersPollMs);
         }
       }
     };
@@ -2333,7 +2403,7 @@ function App() {
       stop = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [apiGet, config, log, maybeSuggestProxy, playSound]);
+  }, [apiGet, config, log, maybeSuggestProxy, orderbookDisplayMode, playSound]);
 
   useEffect(() => {
     if (!config) return undefined;
@@ -2442,7 +2512,7 @@ function App() {
   }, [dismissedNewsIds.length, newsItems]);
 
   useEffect(() => {
-    if (!config || !selectedTicker || caseInfo?.tick == null) return;
+    if (!config || !selectedTicker || caseInfo?.tick == null || isMergerArbCase) return;
     let stop = false;
     const pull = async () => {
       try {
@@ -2470,13 +2540,14 @@ function App() {
     caseInfo?.ticks_per_period,
     config,
     historyEpoch,
+    isMergerArbCase,
     log,
     maybeSuggestProxy,
     selectedTicker,
   ]);
 
   useEffect(() => {
-    if (!isMergerArbCase || !config || caseInfo?.tick == null) return;
+    if (!isMergerArbCase || !config) return;
     const tickers = Array.from(
       new Set(
         activeMnaPairs.flatMap((pair) => [pair.targetTicker, pair.acquirerTicker]).filter(Boolean)
@@ -2484,44 +2555,48 @@ function App() {
     );
     if (!tickers.length) return;
     let stop = false;
+    let timeoutId = null;
+    let cursor = 0;
+    let delayMs = Math.max(1200, tickers.length * 450);
 
     const pull = async () => {
+      if (stop) return;
       const periodLimit = Number(caseInfo?.ticks_per_period) || 300;
       const limit = Math.max(120, periodLimit);
-      const settled = await Promise.all(
-        tickers.map(async (ticker) => {
-          try {
-            const rows = await apiGet("/securities/history", { ticker, limit });
-            return [ticker, Array.isArray(rows) ? rows : []];
-          } catch (error) {
-            if (error?.status !== 429) {
-              log(`Pair history error (${ticker}): ${error.message}`, "error");
-              maybeSuggestProxy(error);
-            }
-            return [ticker, null];
-          }
-        })
-      );
-      if (stop) return;
-      setMnaHistoryByTicker((prev) => {
-        const next = { ...prev };
-        settled.forEach(([ticker, rows]) => {
-          if (Array.isArray(rows)) {
-            next[ticker] = rows;
-          }
-        });
-        return next;
-      });
+      const ticker = tickers[cursor % tickers.length];
+      cursor += 1;
+      try {
+        const rows = await apiGet("/securities/history", { ticker, limit });
+        if (!stop && Array.isArray(rows)) {
+          setMnaHistoryByTicker((prev) => ({
+            ...prev,
+            [ticker]: rows,
+          }));
+        }
+        delayMs = Math.max(1200, tickers.length * 450);
+      } catch (error) {
+        if (!stop && error?.status !== 429) {
+          log(`Pair history error (${ticker}): ${error.message}`, "error");
+          maybeSuggestProxy(error);
+        }
+        if (error?.status === 429) {
+          delayMs = Math.min(6000, Math.round(delayMs * 1.5));
+        }
+      } finally {
+        if (!stop) {
+          timeoutId = setTimeout(pull, delayMs);
+        }
+      }
     };
 
     pull();
     return () => {
       stop = true;
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, [
     activeMnaPairs,
     apiGet,
-    caseInfo?.tick,
     caseInfo?.ticks_per_period,
     config,
     historyEpoch,
@@ -3770,6 +3845,7 @@ function App() {
   const renderMnaTickerChart = ({ pair, ticker, peerTicker }) => {
       const model = mnaChartModelsByTicker.get(ticker);
       const candlesForTicker = model?.candles || [];
+      const mnaChartHeight = orderbookDisplayMode === "graph" ? 430 : 320;
       if (!candlesForTicker.length) {
         return <div className="muted">No candle history yet for {ticker}.</div>;
       }
@@ -3926,7 +4002,7 @@ function App() {
           referenceLevels={referenceLevels}
           showRangeSlider={showRangeSlider}
           theme={theme}
-          height={320}
+          height={mnaChartHeight}
           plotlyData={plotlyDataForPair}
           plotlyLayout={plotlyLayoutForPair}
           plotlyConfig={chartConfig}
@@ -4172,10 +4248,11 @@ function App() {
     tickProgress && tickProgress > 0
       ? `clamp(6px, ${(tickProgress * 100).toFixed(2)}%, 100%)`
       : "0px";
-  const showOrderbookPanels = orderbookDisplayMode !== "candles";
-  const showCandlesPanel = orderbookDisplayMode !== "books";
-  const splitOrderbookLayout = showOrderbookPanels && showCandlesPanel && !isMultiBook;
-  const chartPanelHeight = showOrderbookPanels ? (isMultiBook ? 320 : 420) : 560;
+  const isGraphOnlyMode = orderbookDisplayMode === "graph";
+  const showOrderbookPanels = !isGraphOnlyMode;
+  const showCandlesPanel = true;
+  const splitOrderbookLayout = showOrderbookPanels && !isMultiBook;
+  const chartPanelHeight = showOrderbookPanels ? (isMultiBook ? 320 : 420) : isMergerArbCase ? 420 : 620;
 
   const renderChartPanel = (inline = false) => (
     <div className={`orderbook-candles ${inline ? "orderbook-candles--inline" : ""}`}>
@@ -4947,11 +5024,13 @@ function App() {
         <main className="main">
           <OrderbookSection
             requiresConnectionClass={requiresConnectionClass}
+            isMergerArbCase={isMergerArbCase}
             bookView={bookView}
             setBookView={setBookView}
             orderbookDisplayOptions={ORDERBOOK_DISPLAY_OPTIONS}
             orderbookDisplayMode={orderbookDisplayMode}
             setOrderbookDisplayMode={setOrderbookDisplayMode}
+            isGraphOnlyMode={isGraphOnlyMode}
             addBookPanel={addBookPanel}
             showOrderbookPanels={showOrderbookPanels}
             splitOrderbookLayout={splitOrderbookLayout}

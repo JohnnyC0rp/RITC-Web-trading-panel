@@ -115,7 +115,9 @@ export default function LightweightCandles({
           };
         })
         .filter(Boolean),
-    ];
+    ]
+      .filter((marker) => Number.isFinite(Number(marker.time)))
+      .sort((a, b) => Number(a.time) - Number(b.time));
 
     candleSeries.setMarkers(markerData);
 

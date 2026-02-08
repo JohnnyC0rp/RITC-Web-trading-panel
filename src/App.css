@@ -1353,6 +1353,10 @@ button.full {
   padding: 12px;
 }
 
+.orderbook-shell--graph {
+  padding: 14px 16px;
+}
+
 .orderbook-header {
   display: flex;
   justify-content: space-between;
@@ -1379,6 +1383,11 @@ button.full {
 
 .orderbook-layout.multi {
   grid-template-columns: 1fr;
+}
+
+.orderbook-layout.graph {
+  grid-template-columns: 1fr;
+  gap: 10px;
 }
 
 .orderbook-grid {
@@ -1418,6 +1427,10 @@ button.full {
   min-height: 340px;
 }
 
+.orderbook-shell--graph .orderbook-candles {
+  min-height: 0;
+}
+
 .orderbook-candles--inline {
   min-height: 0;
   padding: 10px;
@@ -1441,16 +1454,16 @@ button.full {
 
 .mna-pairs-list {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .mna-pair-card {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 14px;
   background: #ffffff;
-  padding: 10px;
+  padding: 12px;
 }
 
 .mna-pair-header {
@@ -1495,16 +1508,17 @@ button.full {
 .mna-chart-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .mna-chart-panel {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 12px;
-  padding: 8px;
+  padding: 10px;
   background: #ffffff;
+  min-width: 0;
 }
 
 .mna-chart-panel-header {
@@ -1517,6 +1531,10 @@ button.full {
 .mna-peer-toggle {
   font-size: 0.75rem;
   color: #334155;
+}
+
+.mna-chart-panel .orderbook-candles {
+  min-height: 380px;
 }
 
 .api-lab {
