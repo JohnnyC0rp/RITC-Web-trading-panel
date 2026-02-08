@@ -31,7 +31,7 @@ const DMA_CASES = [
 const CONNECTION_PREFS_KEY = "privodJohnnyConnectionPrefs";
 const UI_PREFS_KEY = "privodJohnnyUiPrefs";
 const UPDATE_SEEN_KEY = "privodJohnnyLastUpdateSeen";
-const TUTORIAL_SEEN_KEY = "privodJohnnyTutorialSeen";
+const TUTORIAL_SEEN_KEY = "privodJohnnyTutorialSeenV2";
 const UPDATE_SOURCE_PATH = `${import.meta.env.BASE_URL}versions.txt`;
 const UPDATE_SEPARATOR = "==================";
 
@@ -947,16 +947,14 @@ function App() {
       }
     }
     setPrefsHydrated(true);
-    if (!stored) {
-      try {
-        const seen = localStorage.getItem(TUTORIAL_SEEN_KEY);
-        if (!seen) {
-          setShowTutorial(true);
-        }
-      } catch {
-        // If storage is blocked, we assume the tutorial is helpful once. 🙂
+    try {
+      const seen = localStorage.getItem(TUTORIAL_SEEN_KEY);
+      if (!seen) {
         setShowTutorial(true);
       }
+    } catch {
+      // If storage is blocked, we assume the tutorial is helpful once. 🙂
+      setShowTutorial(true);
     }
   }, []);
 
