@@ -861,6 +861,7 @@ function App() {
   const hadStaleRef = useRef(false);
   const bookExtraRowsRef = useRef({});
   const pnlUpdateRef = useRef({ tick: null, realized: null, unrealized: null });
+  const terminalBodyRef = useRef(null);
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
   const [proxyTargetRemote, setProxyTargetRemote] = useState("remote");
@@ -3037,6 +3038,16 @@ function App() {
     return terminalLines.filter((line) => allowed.has(line.category));
   }, [logFilters, terminalLines]);
 
+  useEffect(() => {
+    if (!terminalUnlocked) return;
+    const container = terminalBodyRef.current;
+    if (!container) return;
+    const raf = requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [filteredTerminalLines.length, terminalUnlocked]);
+
   const requestMetricRows = useMemo(() => {
     return Object.entries(requestMetrics)
       .map(([key, value]) => ({ key, ...value }))
@@ -4178,7 +4189,7 @@ function App() {
                     </button>
                   ))}
                 </div>
-                <div className="terminal-body">
+                <div className="terminal-body" ref={terminalBodyRef}>
                   {filteredTerminalLines.length ? (
                     filteredTerminalLines.map((line) => (
                       <div key={line.id} className={`terminal-line terminal-line--${line.category}`}>
