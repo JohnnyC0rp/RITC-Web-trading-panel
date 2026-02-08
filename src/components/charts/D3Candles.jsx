@@ -1,0 +1,176 @@
+import { useEffect, useRef, useState } from "react";
+import * as d3 from "d3";
+import { getChartPalette } from "./chartPalette";
+
+const pickTickLabels = (candles, maxTicks = 8) => {
+  if (candles.length <= maxTicks) return candles.map((candle) => candle.tick);
+  const step = Math.ceil(candles.length / maxTicks);
+  return candles.filter((_, index) => index % step === 0).map((candle) => candle.tick);
+};
+
+export default function D3Candles({
+  candles,
+  dealPoints,
+  openFillPoints,
+  closeFillPoints,
+  theme,
+  height,
+}) {
+  const wrapRef = useRef(null);
+  const svgRef = useRef(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    if (!wrapRef.current) return undefined;
+
+    const updateSize = () => {
+      const nextWidth = wrapRef.current?.clientWidth || 0;
+      setWidth(nextWidth);
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(wrapRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!svgRef.current || !width || !candles.length) return;
+
+    const palette = getChartPalette(theme);
+    const margin = { top: 20, right: 20, bottom: 30, left: 45 };
+    const innerWidth = Math.max(10, width - margin.left - margin.right);
+    const innerHeight = Math.max(10, height - margin.top - margin.bottom);
+
+    const ticks = candles.map((candle) => candle.tick);
+    const yMin = d3.min(candles, (candle) => candle.low);
+    const yMax = d3.max(candles, (candle) => candle.high);
+    const yPad = (yMax - yMin || 1) * 0.06;
+
+    const x = d3
+      .scaleBand()
+      .domain(ticks)
+      .range([margin.left, margin.left + innerWidth])
+      .padding(0.28);
+    const y = d3
+      .scaleLinear()
+      .domain([yMin - yPad, yMax + yPad])
+      .nice()
+      .range([margin.top + innerHeight, margin.top]);
+
+    const svg = d3.select(svgRef.current);
+    svg.selectAll("*").remove();
+    svg.attr("width", width).attr("height", height).style("background", palette.background);
+
+    const yTicks = y.ticks(6);
+    svg
+      .append("g")
+      .attr("class", "d3-grid")
+      .selectAll("line")
+      .data(yTicks)
+      .join("line")
+      .attr("x1", margin.left)
+      .attr("x2", margin.left + innerWidth)
+      .attr("y1", (tick) => y(tick))
+      .attr("y2", (tick) => y(tick))
+      .attr("stroke", palette.grid)
+      .attr("stroke-width", 1);
+
+    const xAxis = d3
+      .axisBottom(x)
+      .tickValues(pickTickLabels(candles))
+      .tickFormat((tick) => String(tick));
+    const yAxis = d3.axisLeft(y).ticks(6);
+
+    svg
+      .append("g")
+      .attr("transform", `translate(0,${margin.top + innerHeight})`)
+      .call(xAxis)
+      .call((group) => group.selectAll("text").attr("fill", palette.text).attr("font-size", 10))
+      .call((group) => group.selectAll("line").attr("stroke", palette.grid))
+      .call((group) => group.select("path").attr("stroke", palette.grid));
+
+    svg
+      .append("g")
+      .attr("transform", `translate(${margin.left},0)`)
+      .call(yAxis)
+      .call((group) => group.selectAll("text").attr("fill", palette.text).attr("font-size", 10))
+      .call((group) => group.selectAll("line").attr("stroke", palette.grid))
+      .call((group) => group.select("path").attr("stroke", palette.grid));
+
+    const candleLayer = svg.append("g");
+
+    candleLayer
+      .selectAll("line.wick")
+      .data(candles)
+      .join("line")
+      .attr("class", "wick")
+      .attr("x1", (candle) => x(candle.tick) + x.bandwidth() / 2)
+      .attr("x2", (candle) => x(candle.tick) + x.bandwidth() / 2)
+      .attr("y1", (candle) => y(candle.high))
+      .attr("y2", (candle) => y(candle.low))
+      .attr("stroke", (candle) => (candle.close >= candle.open ? palette.up : palette.down))
+      .attr("stroke-width", 1);
+
+    candleLayer
+      .selectAll("rect.body")
+      .data(candles)
+      .join("rect")
+      .attr("class", "body")
+      .attr("x", (candle) => x(candle.tick))
+      .attr("y", (candle) => y(Math.max(candle.open, candle.close)))
+      .attr("width", Math.max(2, x.bandwidth()))
+      .attr("height", (candle) => Math.max(1, Math.abs(y(candle.open) - y(candle.close))))
+      .attr("fill", (candle) => (candle.close >= candle.open ? palette.up : palette.down))
+      .attr("opacity", 0.92);
+
+    svg
+      .append("g")
+      .selectAll("circle.deal")
+      .data(dealPoints.filter((point) => ticks.includes(point.tick)))
+      .join("circle")
+      .attr("class", "deal")
+      .attr("cx", (point) => x(point.tick) + x.bandwidth() / 2)
+      .attr("cy", (point) => y(point.price))
+      .attr("r", 2.8)
+      .attr("fill", palette.deal);
+
+    const triangle = d3.symbol().type(d3.symbolTriangle).size(62);
+    const openLayer = svg.append("g");
+
+    openLayer
+      .selectAll("path.open")
+      .data(openFillPoints.filter((point) => ticks.includes(point.tick)))
+      .join("path")
+      .attr("class", "open")
+      .attr("d", triangle)
+      .attr("transform", (point) => {
+        const cx = x(point.tick) + x.bandwidth() / 2;
+        const cy = y(point.price);
+        const rotation = point.side === "BUY" ? 0 : 180;
+        return `translate(${cx},${cy}) rotate(${rotation})`;
+      })
+      .attr("fill", (point) => (point.side === "BUY" ? palette.openBuy : palette.openSell))
+      .attr("stroke", palette.border)
+      .attr("stroke-width", 0.8);
+
+    svg
+      .append("g")
+      .selectAll("circle.close")
+      .data(closeFillPoints.filter((point) => ticks.includes(point.tick)))
+      .join("circle")
+      .attr("class", "close")
+      .attr("cx", (point) => x(point.tick) + x.bandwidth() / 2)
+      .attr("cy", (point) => y(point.price))
+      .attr("r", 3.4)
+      .attr("fill", (point) => (point.side === "BUY" ? palette.closeBuy : palette.closeSell))
+      .attr("stroke", palette.border)
+      .attr("stroke-width", 0.8);
+  }, [candles, closeFillPoints, dealPoints, height, openFillPoints, theme, width]);
+
+  return (
+    <div ref={wrapRef} style={{ width: "100%", height: `${height}px` }}>
+      <svg ref={svgRef} />
+    </div>
+  );
+}

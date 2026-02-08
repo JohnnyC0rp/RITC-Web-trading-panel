@@ -951,6 +951,27 @@ button.full {
   padding: 10px 12px;
   background: rgba(15, 23, 42, 0.04);
   border-radius: 12px;
+  align-items: center;
+}
+
+.chart-control {
+  display: grid;
+  gap: 6px;
+  min-width: 220px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.chart-control select {
+  min-width: 220px;
+}
+
+.chart-engine-hint {
+  width: 100%;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .indicator-menu {
@@ -1992,6 +2013,10 @@ button.full {
 
 .app[data-theme="dark"] .chart-settings {
   background: rgba(148, 163, 184, 0.08);
+}
+
+.app[data-theme="dark"] .chart-control {
+  color: #94a3b8;
 }
 
 .app[data-theme="dark"] .segmented {

@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Plot from "react-plotly.js";
 import ApiLab from "./components/ApiLab";
+import CandlesRenderer from "./components/charts/CandlesRenderer";
+import {
+  CANDLE_RENDERERS,
+  DEFAULT_CANDLE_RENDERER,
+  getCandleRendererMeta,
+  isKnownCandleRenderer,
+} from "./components/charts/candleRenderers";
 import "./App.css";
 
 const encodeBasic = (username, password) =>
@@ -875,6 +881,7 @@ function App() {
   const [prefsHydrated, setPrefsHydrated] = useState(false);
   const [uiPrefsHydrated, setUiPrefsHydrated] = useState(false);
   const [chartView, setChartView] = useState({});
+  const [chartRenderer, setChartRenderer] = useState(DEFAULT_CANDLE_RENDERER);
   const [showChartSettings, setShowChartSettings] = useState(false);
   const [showRangeSlider, setShowRangeSlider] = useState(false);
   const [indicatorState, setIndicatorState] = useState(INDICATOR_DEFAULTS);
@@ -962,6 +969,9 @@ function App() {
     const stored = loadUiPrefs();
     if (stored) {
       if (stored.theme) setTheme(stored.theme);
+      if (stored.chartRenderer && isKnownCandleRenderer(stored.chartRenderer)) {
+        setChartRenderer(stored.chartRenderer);
+      }
       if (typeof stored.showRangeSlider === "boolean") setShowRangeSlider(stored.showRangeSlider);
       if (typeof stored.showChartSettings === "boolean") setShowChartSettings(stored.showChartSettings);
       if (stored.bookView) setBookView(stored.bookView);
@@ -1008,13 +1018,23 @@ function App() {
     if (!uiPrefsHydrated) return;
     saveUiPrefs({
       theme,
+      chartRenderer,
       showRangeSlider,
       showChartSettings,
       bookView,
       logFilters,
       indicators: indicatorState,
     });
-  }, [bookView, indicatorState, logFilters, showChartSettings, showRangeSlider, theme, uiPrefsHydrated]);
+  }, [
+    bookView,
+    chartRenderer,
+    indicatorState,
+    logFilters,
+    showChartSettings,
+    showRangeSlider,
+    theme,
+    uiPrefsHydrated,
+  ]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -2761,17 +2781,28 @@ function App() {
     };
   }, [candles]);
 
+  const dealPoints = useMemo(
+    () =>
+      tasTrades
+        .map((trade) => ({
+          tick: toBucketTick(Number(trade.tick)),
+          price: Number(trade.price),
+        }))
+        .filter((trade) => Number.isFinite(trade.tick) && Number.isFinite(trade.price)),
+    [tasTrades]
+  );
+
   const dealTrace = useMemo(() => {
-    if (!tasTrades.length) return null;
+    if (!dealPoints.length) return null;
     return {
       type: "scatter",
       mode: "markers",
       name: "Deals",
-      x: tasTrades.map((trade) => toBucketTick(Number(trade.tick))),
-      y: tasTrades.map((trade) => trade.price),
+      x: dealPoints.map((trade) => trade.tick),
+      y: dealPoints.map((trade) => trade.price),
       marker: { size: 6, color: "rgba(148, 163, 184, 0.55)" },
     };
-  }, [tasTrades]);
+  }, [dealPoints]);
 
   const fillMarkers = useMemo(() => {
     if (!fills.length || !selectedTicker) {
@@ -2811,6 +2842,30 @@ function App() {
     });
     return { opens, closes };
   }, [fills, selectedTicker]);
+
+  const openFillPoints = useMemo(
+    () =>
+      fillMarkers.opens
+        .map((fill) => ({
+          tick: toBucketTick(Number(fill.tick)),
+          price: Number(fill.vwap ?? fill.price),
+          side: fill.action === "BUY" ? "BUY" : "SELL",
+        }))
+        .filter((fill) => Number.isFinite(fill.tick) && Number.isFinite(fill.price)),
+    [fillMarkers.opens]
+  );
+
+  const closeFillPoints = useMemo(
+    () =>
+      fillMarkers.closes
+        .map((fill) => ({
+          tick: toBucketTick(Number(fill.tick)),
+          price: Number(fill.vwap ?? fill.price),
+          side: fill.action === "BUY" ? "BUY" : "SELL",
+        }))
+        .filter((fill) => Number.isFinite(fill.tick) && Number.isFinite(fill.price)),
+    [fillMarkers.closes]
+  );
 
   const indicatorTraces = useMemo(() => {
     if (!indicatorData) return [];
@@ -2872,6 +2927,10 @@ function App() {
     () => OSCILLATOR_INDICATORS.some((id) => indicatorState[id]),
     [indicatorState]
   );
+  const chartRendererMeta = useMemo(
+    () => getCandleRendererMeta(chartRenderer),
+    [chartRenderer]
+  );
 
   const chartGridColor = theme === "dark" ? "rgba(148, 163, 184, 0.2)" : "rgba(0,0,0,0.08)";
   const chartTextColor = theme === "dark" ? "#e2e8f0" : "#0f172a";
@@ -2890,42 +2949,42 @@ function App() {
           decreasing: { line: { color: "#C0392B" } },
         },
         ...(dealTrace ? [dealTrace] : []),
-        ...(fillMarkers.opens.length
+        ...(openFillPoints.length
           ? [
               {
                 type: "scatter",
                 mode: "markers",
                 name: "Position Open",
-                x: fillMarkers.opens.map((fill) => toBucketTick(Number(fill.tick))),
-                y: fillMarkers.opens.map((fill) => fill.vwap ?? fill.price),
+                x: openFillPoints.map((fill) => fill.tick),
+                y: openFillPoints.map((fill) => fill.price),
                 marker: {
                   size: 11,
-                  symbol: fillMarkers.opens.map((fill) =>
-                    fill.action === "BUY" ? "triangle-up" : "triangle-down"
+                  symbol: openFillPoints.map((fill) =>
+                    fill.side === "BUY" ? "triangle-up" : "triangle-down"
                   ),
-                  color: fillMarkers.opens.map((fill) =>
-                    fill.action === "BUY" ? "#22c55e" : "#ef4444"
+                  color: openFillPoints.map((fill) =>
+                    fill.side === "BUY" ? "#22c55e" : "#ef4444"
                   ),
                   line: { width: 1.5, color: "rgba(15, 23, 42, 0.25)" },
                 },
               },
             ]
           : []),
-        ...(fillMarkers.closes.length
+        ...(closeFillPoints.length
           ? [
               {
                 type: "scatter",
                 mode: "markers",
                 name: "Position Close",
-                x: fillMarkers.closes.map((fill) => toBucketTick(Number(fill.tick))),
-                y: fillMarkers.closes.map((fill) => fill.vwap ?? fill.price),
+                x: closeFillPoints.map((fill) => fill.tick),
+                y: closeFillPoints.map((fill) => fill.price),
                 marker: {
                   size: 9,
-                  symbol: fillMarkers.closes.map((fill) =>
-                    fill.action === "BUY" ? "triangle-up" : "triangle-down"
+                  symbol: closeFillPoints.map((fill) =>
+                    fill.side === "BUY" ? "triangle-up" : "triangle-down"
                   ),
-                  color: fillMarkers.closes.map((fill) =>
-                    fill.action === "BUY" ? "#22c55e" : "#ef4444"
+                  color: closeFillPoints.map((fill) =>
+                    fill.side === "BUY" ? "#22c55e" : "#ef4444"
                   ),
                   line: { width: 1.2, color: "rgba(15, 23, 42, 0.25)" },
                   opacity: 0.85,
@@ -2975,6 +3034,33 @@ function App() {
     doubleClick: "reset",
     modeBarButtonsToRemove: ["select2d", "lasso2d"],
   };
+
+  const handlePlotlyRelayout = useCallback((ev) => {
+    if (ev["xaxis.autorange"] || ev["yaxis.autorange"]) {
+      setChartView({});
+      return;
+    }
+    setChartView((prev) => {
+      const next = {};
+      if (ev["xaxis.range[0]"] && ev["xaxis.range[1]"]) {
+        next.xaxis = {
+          ...(prev.xaxis || {}),
+          range: [ev["xaxis.range[0]"], ev["xaxis.range[1]"]],
+        };
+      }
+      if (ev["yaxis.range[0]"] && ev["yaxis.range[1]"]) {
+        next.yaxis = {
+          ...(prev.yaxis || {}),
+          range: [ev["yaxis.range[0]"], ev["yaxis.range[1]"]],
+        };
+      }
+      if (!Object.keys(next).length) return prev;
+      return {
+        ...prev,
+        ...next,
+      };
+    });
+  }, []);
 
   const openPositionRows = useMemo(() => {
     return securities
@@ -3224,81 +3310,90 @@ function App() {
       </div>
       {showChartSettings && (
         <div className="chart-settings">
+          <label className="chart-control">
+            <span>Renderer</span>
+            <select
+              value={chartRenderer}
+              onChange={(event) => setChartRenderer(event.target.value)}
+            >
+              {CANDLE_RENDERERS.map((renderer) => (
+                <option key={renderer.id} value={renderer.id}>
+                  {renderer.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="checkbox-row">
             <input
               type="checkbox"
               checked={showRangeSlider}
+              disabled={!chartRendererMeta.supportsRangeSlider}
               onChange={(event) => setShowRangeSlider(event.target.checked)}
             />
             Enable range slider
           </label>
-          <details className="indicator-menu">
-            <summary>Indicators ({INDICATORS.length})</summary>
-            <div className="indicator-list">
-              {INDICATORS.map((indicator) => (
-                <label key={indicator.id} className="indicator-row">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(indicatorState[indicator.id])}
-                    onChange={() =>
-                      setIndicatorState((prev) => ({
-                        ...prev,
-                        [indicator.id]: !prev[indicator.id],
-                      }))
-                    }
-                  />
-                  <span>{indicator.label}</span>
-                  <button
-                    type="button"
-                    className="indicator-info"
-                    aria-label={`About ${indicator.label}`}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setIndicatorInfo(indicator);
-                    }}
-                  >
-                    i
-                  </button>
-                </label>
-              ))}
+          <div className="muted chart-engine-hint">{chartRendererMeta.description}</div>
+          {!chartRendererMeta.supportsRangeSlider && (
+            <div className="muted chart-engine-hint">
+              Range slider is unavailable for this renderer.
             </div>
-          </details>
+          )}
+          {chartRendererMeta.supportsIndicators ? (
+            <details className="indicator-menu">
+              <summary>Indicators ({INDICATORS.length})</summary>
+              <div className="indicator-list">
+                {INDICATORS.map((indicator) => (
+                  <label key={indicator.id} className="indicator-row">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(indicatorState[indicator.id])}
+                      onChange={() =>
+                        setIndicatorState((prev) => ({
+                          ...prev,
+                          [indicator.id]: !prev[indicator.id],
+                        }))
+                      }
+                    />
+                    <span>{indicator.label}</span>
+                    <button
+                      type="button"
+                      className="indicator-info"
+                      aria-label={`About ${indicator.label}`}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setIndicatorInfo(indicator);
+                      }}
+                    >
+                      i
+                    </button>
+                  </label>
+                ))}
+              </div>
+            </details>
+          ) : (
+            <div className="muted chart-engine-hint">
+              Indicators are currently available only in the Plotly renderer.
+            </div>
+          )}
         </div>
       )}
       {candles.length === 0 ? (
         <div className="muted">No candle history yet.</div>
       ) : (
-        <Plot
-          data={chartData}
-          layout={chartLayout}
-          config={chartConfig}
-          style={{ width: "100%", height: isMultiBook ? "320px" : "420px" }}
-          onRelayout={(ev) => {
-            const next = {};
-            if (ev["xaxis.autorange"] || ev["yaxis.autorange"]) {
-              setChartView({});
-              return;
-            }
-            if (ev["xaxis.range[0]"] && ev["xaxis.range[1]"]) {
-              next.xaxis = {
-                ...(chartView.xaxis || {}),
-                range: [ev["xaxis.range[0]"], ev["xaxis.range[1]"]],
-              };
-            }
-            if (ev["yaxis.range[0]"] && ev["yaxis.range[1]"]) {
-              next.yaxis = {
-                ...(chartView.yaxis || {}),
-                range: [ev["yaxis.range[0]"], ev["yaxis.range[1]"]],
-              };
-            }
-            if (Object.keys(next).length) {
-              setChartView((prev) => ({
-                ...prev,
-                ...next,
-              }));
-            }
-          }}
+        <CandlesRenderer
+          renderer={chartRenderer}
+          candles={candles}
+          dealPoints={dealPoints}
+          openFillPoints={openFillPoints}
+          closeFillPoints={closeFillPoints}
+          showRangeSlider={showRangeSlider}
+          theme={theme}
+          height={isMultiBook ? 320 : 420}
+          plotlyData={chartData}
+          plotlyLayout={chartLayout}
+          plotlyConfig={chartConfig}
+          onPlotlyRelayout={handlePlotlyRelayout}
         />
       )}
     </div>

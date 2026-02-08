@@ -1,3 +1,7 @@
+2026-02-08T12:53:38Z
+🕯️ Candlestick renderer switcher added with Plotly, Lightweight Charts, ECharts, Highcharts, and D3 options.
+⚙️ Chart renderer preference now persists in UI settings and switches live.
+==================
 2026-02-08T11:54:13Z
 🧾 Terminal feed behavior updated (auto-follow + capped history).
 📊 PnL tracker cadence slowed for readability.
