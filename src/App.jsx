@@ -3834,122 +3834,6 @@ function App() {
         </aside>
 
         <main className="main">
-          <section className={`card terminal ${requiresConnectionClass}`.trim()}>
-            <div className="terminal-header">
-              <span>Privod Johnny Terminal</span>
-            </div>
-            <div className="terminal-actions terminal-actions--inline">
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => {
-                  if (terminalUnlocked) {
-                    setTerminalUnlocked(false);
-                    log("Terminal locked.", "system");
-                  } else {
-                    setShowTerminalPrompt(true);
-                  }
-                }}
-              >
-                {terminalUnlocked ? "Lock" : "Open Terminal"}
-              </button>
-              <button type="button" className="ghost small" onClick={enableAllLogFilters}>
-                All Logs
-              </button>
-            </div>
-            <div className="terminal-metrics">
-              <div className="terminal-metrics-title">Endpoint response time</div>
-              {requestMetricRows.length ? (
-                <>
-                  <div className="terminal-metric-row terminal-metric-header">
-                    <span>Endpoint</span>
-                    <span>Avg (ms)</span>
-                    <span>Last (ms)</span>
-                    <span>Count</span>
-                    <span>Status</span>
-                  </div>
-                  {requestMetricRows.map((row) => (
-                    <div key={row.key} className="terminal-metric-row">
-                      <span className="terminal-metric-endpoint">{row.key}</span>
-                      <span className="terminal-metric-stat">{formatMs(row.avgMs)}</span>
-                      <span className="terminal-metric-stat">{formatMs(row.lastMs)}</span>
-                      <span className="terminal-metric-stat">{row.count}</span>
-                      <span className="terminal-metric-stat">{row.lastStatus ?? "—"}</span>
-                    </div>
-                  ))}
-                </>
-              ) : (
-                <div className="muted">No requests yet.</div>
-              )}
-            </div>
-            {perfRows.length ? (
-              <details className="terminal-perf" open>
-                <summary>Fast polling performance</summary>
-                <div className="terminal-perf-grid">
-                  {perfRows.map((row) => {
-                    const points = row.points;
-                    const line = buildSparklinePoints(points);
-                    const last = points[points.length - 1]?.ms ?? null;
-                    return (
-                      <div key={row.key} className="terminal-perf-card">
-                        <div className="terminal-perf-header">
-                          <strong>{row.label}</strong>
-                          <span className="muted">{row.key}</span>
-                        </div>
-                        <div className="terminal-perf-meta">
-                          <span>Last: {formatMs(last)}ms</span>
-                          <span>
-                            Poll:{" "}
-                            {row.pollMs ? `${row.pollMs}ms` : "adaptive"}
-                          </span>
-                        </div>
-                        <svg
-                          className="terminal-sparkline"
-                          viewBox="0 0 160 44"
-                          preserveAspectRatio="none"
-                        >
-                          <polyline points={line} />
-                        </svg>
-                      </div>
-                    );
-                  })}
-                </div>
-              </details>
-            ) : null}
-            <div className="terminal-filters">
-              {LOG_CATEGORIES.map((category) => (
-                <button
-                  key={category.id}
-                  type="button"
-                  className={`terminal-filter ${
-                    logFilters.includes(category.id) ? "active" : ""
-                  }`}
-                  onClick={() => toggleLogFilter(category.id)}
-                >
-                  {category.label}
-                </button>
-              ))}
-            </div>
-            <div className={`terminal-body ${terminalUnlocked ? "" : "blurred"}`}>
-              {terminalUnlocked ? (
-                filteredTerminalLines.length ? (
-                  filteredTerminalLines.map((line) => (
-                    <div key={line.id} className={`terminal-line terminal-line--${line.category}`}>
-                      <span className="terminal-stamp">{line.stamp}</span>
-                      <span className={`terminal-tag terminal-tag--${line.category}`}>
-                        {line.category}
-                      </span>
-                      <span className="terminal-message">{line.message}</span>
-                    </div>
-                  ))
-                ) : (
-                  <div className="muted">No terminal activity yet.</div>
-                )
-              ) : (
-                <div className="muted">Terminal locked. Unlock to start streaming logs.</div>
-              )}
-            </div>
-          </section>
           <section className={`card orderbook-shell ${requiresConnectionClass}`.trim()}>
             <div className="orderbook-header">
               <div>
@@ -4255,7 +4139,123 @@ function App() {
             </div>
           </section>
           
-          <ApiLab
+          <section className={`card terminal ${requiresConnectionClass}`.trim()}>
+            <div className="terminal-header">
+              <span>Privod Johnny Terminal</span>
+            </div>
+            <div className="terminal-actions terminal-actions--inline">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  if (terminalUnlocked) {
+                    setTerminalUnlocked(false);
+                    log("Terminal locked.", "system");
+                  } else {
+                    setShowTerminalPrompt(true);
+                  }
+                }}
+              >
+                {terminalUnlocked ? "Lock" : "Open Terminal"}
+              </button>
+              <button type="button" className="ghost small" onClick={enableAllLogFilters}>
+                All Logs
+              </button>
+            </div>
+            <div className="terminal-metrics">
+              <div className="terminal-metrics-title">Endpoint response time</div>
+              {requestMetricRows.length ? (
+                <>
+                  <div className="terminal-metric-row terminal-metric-header">
+                    <span>Endpoint</span>
+                    <span>Avg (ms)</span>
+                    <span>Last (ms)</span>
+                    <span>Count</span>
+                    <span>Status</span>
+                  </div>
+                  {requestMetricRows.map((row) => (
+                    <div key={row.key} className="terminal-metric-row">
+                      <span className="terminal-metric-endpoint">{row.key}</span>
+                      <span className="terminal-metric-stat">{formatMs(row.avgMs)}</span>
+                      <span className="terminal-metric-stat">{formatMs(row.lastMs)}</span>
+                      <span className="terminal-metric-stat">{row.count}</span>
+                      <span className="terminal-metric-stat">{row.lastStatus ?? "—"}</span>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div className="muted">No requests yet.</div>
+              )}
+            </div>
+            <div className="terminal-filters">
+              {LOG_CATEGORIES.map((category) => (
+                <button
+                  key={category.id}
+                  type="button"
+                  className={`terminal-filter ${
+                    logFilters.includes(category.id) ? "active" : ""
+                  }`}
+                  onClick={() => toggleLogFilter(category.id)}
+                >
+                  {category.label}
+                </button>
+              ))}
+            </div>
+            <div className={`terminal-body ${terminalUnlocked ? "" : "blurred"}`}>
+              {terminalUnlocked ? (
+                filteredTerminalLines.length ? (
+                  filteredTerminalLines.map((line) => (
+                    <div key={line.id} className={`terminal-line terminal-line--${line.category}`}>
+                      <span className="terminal-stamp">{line.stamp}</span>
+                      <span className={`terminal-tag terminal-tag--${line.category}`}>
+                        {line.category}
+                      </span>
+                      <span className="terminal-message">{line.message}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="muted">No terminal activity yet.</div>
+                )
+              ) : (
+                <div className="muted">Terminal locked. Unlock to start streaming logs.</div>
+              )}
+            </div>
+            {perfRows.length ? (
+              <details className="terminal-perf" open>
+                <summary>Fast polling performance</summary>
+                <div className="terminal-perf-grid">
+                  {perfRows.map((row) => {
+                    const points = row.points;
+                    const line = buildSparklinePoints(points);
+                    const last = points[points.length - 1]?.ms ?? null;
+                    return (
+                      <div key={row.key} className="terminal-perf-card">
+                        <div className="terminal-perf-header">
+                          <strong>{row.label}</strong>
+                          <span className="muted">{row.key}</span>
+                        </div>
+                        <div className="terminal-perf-meta">
+                          <span>Last: {formatMs(last)}ms</span>
+                          <span>
+                            Poll:{" "}
+                            {row.pollMs ? `${row.pollMs}ms` : "adaptive"}
+                          </span>
+                        </div>
+                        <svg
+                          className="terminal-sparkline"
+                          viewBox="0 0 160 44"
+                          preserveAspectRatio="none"
+                        >
+                          <polyline points={line} />
+                        </svg>
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            ) : null}
+          </section>
+<ApiLab
             apiGet={apiGet}
             apiPost={apiPost}
             apiDelete={apiDelete}
