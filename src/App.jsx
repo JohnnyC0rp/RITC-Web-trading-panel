@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ApiLab from "./components/ApiLab";
 import CandlesRenderer from "./components/charts/CandlesRenderer";
+import OpenOrdersCard from "./components/sections/OpenOrdersCard";
+import OpenPositionsCard from "./components/sections/OpenPositionsCard";
+import OrderbookSection from "./components/sections/OrderbookSection";
 import {
   CANDLE_RENDERERS,
   DEFAULT_CANDLE_RENDERER,
@@ -981,6 +984,7 @@ function App() {
     price: "",
   });
 
+  // App bootstrap and persisted preference hydration.
   useEffect(() => {
     document.title = "Privod Johnny";
   }, []);
@@ -1511,6 +1515,7 @@ function App() {
     log("Disconnected", "system");
   };
 
+  // High-frequency polling lane for market state + trader state.
   useEffect(() => {
     if (!config) return undefined;
     let stop = false;
@@ -2299,6 +2304,7 @@ function App() {
     }
   }, [apiPost, config, log, notify]);
 
+  // Mouse/quick order path used by both orderbook rows and chart trading.
   const placeQuickOrder = async (ticker, side, price, isMarket = false, source = "book") => {
     if (!config || !ticker) return;
     const quantity = Math.max(1, parseInt(orderDraft.quantity, 10) || 1);
@@ -2602,6 +2608,7 @@ function App() {
     selectedTicker,
   ]);
 
+  // Build dense row state once per ticker so the UI layer can stay mostly declarative.
   const buildBookState = useCallback(
     (ticker) => {
       if (!ticker) {
@@ -2952,6 +2959,7 @@ function App() {
     setShowShortcuts,
   ]);
 
+  // Chart model build stage: candles, fills, order levels, and indicator overlays.
   const candles = useMemo(() => aggregateCandles(history, 5), [history]);
 
   const candleData = useMemo(() => {
@@ -4296,66 +4304,20 @@ function App() {
             </div>
           </section>
 
-          <section className={`card compact-card ${requiresConnectionClass}`.trim()}>
-            <div className="card-title">Open Orders</div>
-            <div className="orders-list">
-              {orders.length === 0 && <div className="muted">No open orders yet.</div>}
-              {orders.map((order) => {
-                const orderId = order.order_id ?? order.id;
-                const stopLoss = getOrderStopLoss(order);
-                const takeProfit = getOrderTakeProfit(order);
-                return (
-                  <div key={orderId} className="order-row">
-                    <div>
-                      <strong>{order.ticker}</strong>
-                      <div className="muted">
-                        {order.action} {order.quantity} @ {order.price ?? "MKT"}
-                        {(stopLoss != null || takeProfit != null) && (
-                          <>
-                            {" · "}
-                            SL {stopLoss != null ? stopLoss : "—"} · TP {takeProfit != null ? takeProfit : "—"}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <button type="button" className="ghost" onClick={() => handleCancel(orderId)}>
-                      Cancel
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+          <OpenOrdersCard
+            requiresConnectionClass={requiresConnectionClass}
+            orders={orders}
+            handleCancel={handleCancel}
+            getOrderStopLoss={getOrderStopLoss}
+            getOrderTakeProfit={getOrderTakeProfit}
+          />
 
-          <section className={`card compact-card ${requiresConnectionClass}`.trim()}>
-            <div className="card-title">Open Positions</div>
-            <div className="orders-list">
-              {openPositionRows.length === 0 && <div className="muted">No open positions.</div>}
-              {openPositionRows.map((position) => {
-                const tone =
-                  position.pnl == null ? "" : position.pnl < 0 ? "negative" : "positive";
-                const sideLabel = position.qty > 0 ? "Long" : "Short";
-                const sideClass = position.qty > 0 ? "position-side position-side--long" : "position-side position-side--short";
-                return (
-                  <div key={position.ticker} className="order-row position-row">
-                    <div>
-                      <strong>{position.ticker}</strong>
-                      <div className="muted">
-                        <span className={sideClass}>{sideLabel}</span> · Qty {formatQty(position.qty)} · Entry{" "}
-                        {position.entry != null ? formatNumber(position.entry) : "—"}
-                      </div>
-                    </div>
-                    <div className="position-pnl">
-                      <span>PnL</span>
-                      <strong className={`pnl-value ${tone}`}>
-                        {position.pnl != null ? formatNumber(position.pnl, 2) : "—"}
-                      </strong>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+          <OpenPositionsCard
+            requiresConnectionClass={requiresConnectionClass}
+            openPositionRows={openPositionRows}
+            formatQty={formatQty}
+            formatNumber={formatNumber}
+          />
 
           <section className={`card compact-card ${requiresConnectionClass}`.trim()}>
             <div className="card-title">My Executions</div>
@@ -4455,378 +4417,31 @@ function App() {
         </aside>
 
         <main className="main">
-          <section className={`card orderbook-shell ${requiresConnectionClass}`.trim()}>
-            <div className="orderbook-header">
-              <div>
-                <div className="card-title">Order Books</div>
-                <div className="muted">Book trader or ladder trader, with compact rows.</div>
-              </div>
-              <div className="orderbook-actions">
-                <div className="segmented segmented--compact">
-                  <button
-                    type="button"
-                    className={bookView === "book" ? "active" : ""}
-                    onClick={() => setBookView("book")}
-                  >
-                    Book Trader
-                  </button>
-                  <button
-                    type="button"
-                    className={bookView === "ladder" ? "active" : ""}
-                    onClick={() => setBookView("ladder")}
-                  >
-                    Ladder Trader
-                  </button>
-                </div>
-                <div className="segmented segmented--compact">
-                  {ORDERBOOK_DISPLAY_OPTIONS.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      className={orderbookDisplayMode === option.id ? "active" : ""}
-                      onClick={() => setOrderbookDisplayMode(option.id)}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className="ghost small"
-                  onClick={addBookPanel}
-                  disabled={!showOrderbookPanels}
-                >
-                  Add Book
-                </button>
-              </div>
-            </div>
-            <div className={`orderbook-layout ${splitOrderbookLayout ? "single" : "multi"}`}>
-              {showOrderbookPanels && (
-                <div className="orderbook-grid">
-                  {bookStates.map(({ panel, state }) => {
-                  const panelOrders = state.ordersByPrice;
-                  return (
-                    <div key={panel.id} className={`book-panel ${bookView}`}>
-                      <div className="book-panel-header">
-                        <div className="book-panel-controls">
-                          <select
-                            value={panel.ticker}
-                            onChange={(event) => updateBookPanelTicker(panel.id, event.target.value)}
-                          >
-                            <option value="">Select</option>
-                            {securities.map((sec) => (
-                              <option key={sec.ticker} value={sec.ticker}>
-                                {sec.ticker}
-                              </option>
-                            ))}
-                          </select>
-                          <span className="book-center-hint">Use C to center view</span>
-                        </div>
-                        {panel.id !== BOOK_PANEL_PRIMARY_ID && (
-                          <button
-                            type="button"
-                            className="ghost small"
-                            onClick={() => removeBookPanel(panel.id)}
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                      <div className={`book-table ${bookView}`}>
-                        <div className="book-head">
-                          {bookView === "book" ? (
-                            <>
-                              <span>Trader</span>
-                              <span>Volume</span>
-                              <span>Price</span>
-                              <span>Price</span>
-                              <span>Volume</span>
-                              <span>Trader</span>
-                            </>
-                          ) : (
-                            <>
-                              <span>Bid</span>
-                              <span>Price</span>
-                              <span>Ask</span>
-                            </>
-                          )}
-                        </div>
-                        {/* Manual scroll stays manual. No auto-centering hijinks. */}
-                        <div
-                          className={`book-scroll ${bookView}`}
-                          ref={(node) => {
-                            if (panel.id === BOOK_PANEL_PRIMARY_ID) {
-                              bookScrollRef.current = node;
-                            }
-                            if (node) {
-                              bookScrollRefs.current[panel.id] = node;
-                            } else {
-                              delete bookScrollRefs.current[panel.id];
-                            }
-                          }}
-                        >
-                          {state.rows.map((row, index) => {
-                            const bidRatio = row.bidQty / state.maxVolume;
-                            const askRatio = row.askQty / state.maxVolume;
-                            const bidTone = getVolumeTone(bidRatio);
-                            const askTone = getVolumeTone(askRatio);
-                            const myOrders =
-                              panelOrders.get(row.key) || {
-                                buyQty: 0,
-                                buyCount: 0,
-                                sellQty: 0,
-                                sellCount: 0,
-                                buyStops: new Set(),
-                                buyTargets: new Set(),
-                                sellStops: new Set(),
-                                sellTargets: new Set(),
-                              };
-                            const hasOrders = myOrders.buyCount || myOrders.sellCount;
-                            const bidTrader = myOrders.buyCount ? "ME" : "ANON";
-                            const askTrader = myOrders.sellCount ? "ME" : "ANON";
-                            const buyStopLabel = formatPriceSet(myOrders.buyStops);
-                            const buyTargetLabel = formatPriceSet(myOrders.buyTargets);
-                            const sellStopLabel = formatPriceSet(myOrders.sellStops);
-                            const sellTargetLabel = formatPriceSet(myOrders.sellTargets);
-                            const bestBid = Number(state.bestBidPrice ?? state.midPrice);
-                            const bestAsk = Number(state.bestAskPrice ?? state.midPrice);
-                            const isBidZone = Number.isFinite(bestBid)
-                              ? row.price <= bestBid
-                              : row.price <= state.midPrice;
-                            const isAskZone = Number.isFinite(bestAsk)
-                              ? row.price >= bestAsk
-                              : row.price >= state.midPrice;
-                            const entryArrow =
-                              row.entryDirection === "down"
-                                ? "↓"
-                                : row.entryDirection === "up"
-                                  ? "↑"
-                                  : "";
-                            const handleBookOrder = (event, intent) => {
-                              event.preventDefault();
-                              if (!panel.ticker || row.isSpread) return;
-                              if (intent === "buy") {
-                                if (isBidZone) {
-                                  placeQuickOrder(panel.ticker, "BUY", row.price, false);
-                                } else if (isAskZone) {
-                                  placeQuickOrder(panel.ticker, "BUY", row.price, true);
-                                }
-                                return;
-                              }
-                              if (isAskZone) {
-                                placeQuickOrder(panel.ticker, "SELL", row.price, false);
-                              } else if (isBidZone) {
-                                placeQuickOrder(panel.ticker, "SELL", row.price, true);
-                              }
-                            };
-                            return (
-                              <div
-                                key={`${panel.id}-${row.price}-${index}`}
-                                className={`book-row ${bookView} ${row.isMid ? "mid" : ""} ${
-                                  row.isSpread ? "spread" : ""
-                                } ${hasOrders ? "has-orders" : ""}`}
-                                data-center={row.isCenter ? "true" : undefined}
-                                onClick={(event) => handleBookOrder(event, "buy")}
-                                onContextMenu={(event) => handleBookOrder(event, "sell")}
-                              >
-                                {bookView === "book" ? (
-                                  <>
-                                    <span
-                                      className={`book-cell trader ${myOrders.buyCount ? "mine" : ""}`}
-                                    >
-                                      {bidTrader}
-                                    </span>
-                                    <span
-                                      className={`book-cell volume bid ${
-                                        row.pnlTone && row.pnlSide === "long"
-                                          ? `pnl-${row.pnlTone}`
-                                          : ""
-                                      }`}
-                                    >
-                                      {row.pnlTone && row.pnlSide === "long" && (
-                                        <span className="book-pnl" />
-                                      )}
-                                      <span
-                                        className={`book-bar ${bidTone}`}
-                                        style={{ width: `${Math.round(bidRatio * 100)}%` }}
-                                      />
-                                      {myOrders.buyCount ? (
-                                        <span className="book-meta">
-                                          <span className="book-chip">
-                                            {formatQty(myOrders.buyCount)}x
-                                          </span>
-                                          <span className="book-chip">
-                                            {formatQty(myOrders.buyQty)}
-                                          </span>
-                                          {buyStopLabel && (
-                                            <span className="book-chip book-chip--sl">SL {buyStopLabel}</span>
-                                          )}
-                                          {buyTargetLabel && (
-                                            <span className="book-chip book-chip--tp">TP {buyTargetLabel}</span>
-                                          )}
-                                        </span>
-                                      ) : null}
-                                      <span className="book-value">{formatQty(row.bidQty)}</span>
-                                    </span>
-                                    <span
-                                      className={`price bid-price ${row.isMid ? "mid" : ""} ${
-                                        row.isEntry && row.pnlSide === "long" ? "entry" : ""
-                                      }`}
-                                    >
-                                      {row.isEntry && row.pnlSide === "long" && entryArrow && (
-                                        <span className={`book-entry ${row.entryDirection} ${row.entryTone || ""}`}>
-                                          {entryArrow}
-                                        </span>
-                                      )}
-                                      {row.price.toFixed(state.quotedDecimals)}
-                                      {row.hasStopLoss && <span className="book-risk-tag sl">SL</span>}
-                                      {row.hasTakeProfit && <span className="book-risk-tag tp">TP</span>}
-                                    </span>
-                                    <span
-                                      className={`price ask-price ${row.isMid ? "mid" : ""} ${
-                                        row.isEntry && row.pnlSide === "short" ? "entry" : ""
-                                      }`}
-                                    >
-                                      {row.isEntry && row.pnlSide === "short" && entryArrow && (
-                                        <span className={`book-entry ${row.entryDirection} ${row.entryTone || ""}`}>
-                                          {entryArrow}
-                                        </span>
-                                      )}
-                                      {row.price.toFixed(state.quotedDecimals)}
-                                    </span>
-                                    <span
-                                      className={`book-cell volume ask ${
-                                        row.pnlTone && row.pnlSide === "short"
-                                          ? `pnl-${row.pnlTone}`
-                                          : ""
-                                      }`}
-                                    >
-                                      {row.pnlTone && row.pnlSide === "short" && (
-                                        <span className="book-pnl" />
-                                      )}
-                                      <span
-                                        className={`book-bar ${askTone}`}
-                                        style={{ width: `${Math.round(askRatio * 100)}%` }}
-                                      />
-                                      {myOrders.sellCount ? (
-                                        <span className="book-meta">
-                                          <span className="book-chip">
-                                            {formatQty(myOrders.sellCount)}x
-                                          </span>
-                                          <span className="book-chip">
-                                            {formatQty(myOrders.sellQty)}
-                                          </span>
-                                          {sellStopLabel && (
-                                            <span className="book-chip book-chip--sl">SL {sellStopLabel}</span>
-                                          )}
-                                          {sellTargetLabel && (
-                                            <span className="book-chip book-chip--tp">TP {sellTargetLabel}</span>
-                                          )}
-                                        </span>
-                                      ) : null}
-                                      <span className="book-value">{formatQty(row.askQty)}</span>
-                                    </span>
-                                    <span
-                                      className={`book-cell trader ${myOrders.sellCount ? "mine" : ""}`}
-                                    >
-                                      {askTrader}
-                                    </span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span
-                                      className={`book-cell bid ${
-                                        row.pnlTone && row.pnlSide === "long"
-                                          ? `pnl-${row.pnlTone}`
-                                          : ""
-                                      }`}
-                                    >
-                                      {row.pnlTone && row.pnlSide === "long" && (
-                                        <span className="book-pnl" />
-                                      )}
-                                      <span
-                                        className={`book-bar ${bidTone}`}
-                                        style={{ width: `${Math.round(bidRatio * 100)}%` }}
-                                      />
-                                      {myOrders.buyCount ? (
-                                        <span className="book-meta">
-                                          <span className="book-chip">
-                                            {formatQty(myOrders.buyCount)}x
-                                          </span>
-                                          <span className="book-chip">
-                                            {formatQty(myOrders.buyQty)}
-                                          </span>
-                                          {buyStopLabel && (
-                                            <span className="book-chip book-chip--sl">SL {buyStopLabel}</span>
-                                          )}
-                                          {buyTargetLabel && (
-                                            <span className="book-chip book-chip--tp">TP {buyTargetLabel}</span>
-                                          )}
-                                        </span>
-                                      ) : null}
-                                      <span className="book-value">{formatQty(row.bidQty)}</span>
-                                    </span>
-                                    <span
-                                      className={`price ${row.isMid ? "mid" : ""} ${
-                                        row.isEntry ? "entry" : ""
-                                      }`}
-                                    >
-                                      {row.isEntry && entryArrow && (
-                                        <span className={`book-entry ${row.entryDirection} ${row.entryTone || ""}`}>
-                                          {entryArrow}
-                                        </span>
-                                      )}
-                                      {row.price.toFixed(state.quotedDecimals)}
-                                      {row.hasStopLoss && <span className="book-risk-tag sl">SL</span>}
-                                      {row.hasTakeProfit && <span className="book-risk-tag tp">TP</span>}
-                                    </span>
-                                    <span
-                                      className={`book-cell ask ${
-                                        row.pnlTone && row.pnlSide === "short"
-                                          ? `pnl-${row.pnlTone}`
-                                          : ""
-                                      }`}
-                                    >
-                                      {row.pnlTone && row.pnlSide === "short" && (
-                                        <span className="book-pnl" />
-                                      )}
-                                      <span
-                                        className={`book-bar ${askTone}`}
-                                        style={{ width: `${Math.round(askRatio * 100)}%` }}
-                                      />
-                                      {myOrders.sellCount ? (
-                                        <span className="book-meta">
-                                          <span className="book-chip">
-                                            {formatQty(myOrders.sellCount)}x
-                                          </span>
-                                          <span className="book-chip">
-                                            {formatQty(myOrders.sellQty)}
-                                          </span>
-                                          {sellStopLabel && (
-                                            <span className="book-chip book-chip--sl">SL {sellStopLabel}</span>
-                                          )}
-                                          {sellTargetLabel && (
-                                            <span className="book-chip book-chip--tp">TP {sellTargetLabel}</span>
-                                          )}
-                                        </span>
-                                      ) : null}
-                                      <span className="book-value">{formatQty(row.askQty)}</span>
-                                    </span>
-                                  </>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              )}
-              {showCandlesPanel && renderChartPanel(showOrderbookPanels && isMultiBook)}
-            </div>
-          </section>
+          <OrderbookSection
+            requiresConnectionClass={requiresConnectionClass}
+            bookView={bookView}
+            setBookView={setBookView}
+            orderbookDisplayOptions={ORDERBOOK_DISPLAY_OPTIONS}
+            orderbookDisplayMode={orderbookDisplayMode}
+            setOrderbookDisplayMode={setOrderbookDisplayMode}
+            addBookPanel={addBookPanel}
+            showOrderbookPanels={showOrderbookPanels}
+            splitOrderbookLayout={splitOrderbookLayout}
+            bookStates={bookStates}
+            securities={securities}
+            updateBookPanelTicker={updateBookPanelTicker}
+            removeBookPanel={removeBookPanel}
+            bookPanelPrimaryId={BOOK_PANEL_PRIMARY_ID}
+            bookScrollRef={bookScrollRef}
+            bookScrollRefs={bookScrollRefs}
+            getVolumeTone={getVolumeTone}
+            formatQty={formatQty}
+            formatPriceSet={formatPriceSet}
+            placeQuickOrder={placeQuickOrder}
+            showCandlesPanel={showCandlesPanel}
+            isMultiBook={isMultiBook}
+            renderChartPanel={renderChartPanel}
+          />
           
           <section className={`card terminal ${requiresConnectionClass}`.trim()}>
             <div className="terminal-header">
