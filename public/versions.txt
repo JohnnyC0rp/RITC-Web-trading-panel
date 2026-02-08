@@ -1,3 +1,11 @@
+2026-02-08T11:54:13Z
+🧱 Terminal feed now sits above metrics and stays hidden until unlocked.
+🧲 Terminal auto-follow stays pinned to the latest logs.
+🧾 Terminal history capped at 100 lines to keep it responsive.
+📰 News feed is shorter-lived with a clear-all control and tighter strip.
+📊 PnL tracker now updates at a calmer tick cadence.
+🧭 Multi-book view now keeps the candles with the primary book.
+==================
 2026-02-07T17:39:10Z
 🔢 Version badge now shows major updates + commit minor.
 📉 Order book columns tightened to free space for multi-book and charts.
