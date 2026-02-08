@@ -862,6 +862,7 @@ function App() {
   const bookExtraRowsRef = useRef({});
   const pnlUpdateRef = useRef({ tick: null, realized: null, unrealized: null });
   const terminalBodyRef = useRef(null);
+  const clearNewsSortKeyRef = useRef(null);
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
   const [proxyTargetRemote, setProxyTargetRemote] = useState("remote");
@@ -2012,11 +2013,15 @@ function App() {
             receivedAt: Date.now(),
           };
         });
-        if (!stop) {
+        const clearedAfter = clearNewsSortKeyRef.current;
+        const filtered = Number.isFinite(clearedAfter)
+          ? normalized.filter((entry) => (entry.sortKey ?? -1) > clearedAfter)
+          : normalized;
+        if (!stop && filtered.length) {
           let didPing = false;
           setNewsItems((prev) => {
             const map = new Map(prev.map((entry) => [entry.id, entry]));
-            normalized.forEach((entry) => {
+            filtered.forEach((entry) => {
               if (!map.has(entry.id)) {
                 didPing = true;
                 map.set(entry.id, entry);
@@ -2037,7 +2042,7 @@ function App() {
             playSound("news");
           }
           const maxKey = Math.max(
-            ...normalized.map((entry) => (Number.isFinite(entry.sortKey) ? entry.sortKey : -1))
+            ...filtered.map((entry) => (Number.isFinite(entry.sortKey) ? entry.sortKey : -1))
           );
           if (Number.isFinite(maxKey) && maxKey >= 0) {
             newsSinceRef.current = maxKey;
@@ -3021,9 +3026,23 @@ function App() {
   );
 
   const clearAllNews = useCallback(() => {
+    const maxKey = Math.max(
+      -1,
+      ...newsItems.map((item) =>
+        Number.isFinite(Number(item.sortKey)) ? Number(item.sortKey) : -1
+      )
+    );
+    clearNewsSortKeyRef.current = maxKey >= 0 ? maxKey : null;
+    if (maxKey >= 0) {
+      newsSinceRef.current = maxKey;
+    }
+    setDismissedNewsIds((prev) => {
+      const next = new Set(prev);
+      newsItems.forEach((item) => next.add(item.id));
+      return Array.from(next);
+    });
     setNewsItems([]);
-    setDismissedNewsIds([]);
-  }, []);
+  }, [newsItems]);
 
   const newsDeck = useMemo(() => {
     const sorted = [...newsItems].sort(
