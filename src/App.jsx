@@ -4162,6 +4162,39 @@ function App() {
                 All Logs
               </button>
             </div>
+            {terminalUnlocked && (
+              <>
+                <div className="terminal-filters">
+                  {LOG_CATEGORIES.map((category) => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      className={`terminal-filter ${
+                        logFilters.includes(category.id) ? "active" : ""
+                      }`}
+                      onClick={() => toggleLogFilter(category.id)}
+                    >
+                      {category.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="terminal-body">
+                  {filteredTerminalLines.length ? (
+                    filteredTerminalLines.map((line) => (
+                      <div key={line.id} className={`terminal-line terminal-line--${line.category}`}>
+                        <span className="terminal-stamp">{line.stamp}</span>
+                        <span className={`terminal-tag terminal-tag--${line.category}`}>
+                          {line.category}
+                        </span>
+                        <span className="terminal-message">{line.message}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="muted">No terminal activity yet.</div>
+                  )}
+                </div>
+              </>
+            )}
             <div className="terminal-metrics">
               <div className="terminal-metrics-title">Endpoint response time</div>
               {requestMetricRows.length ? (
@@ -4185,39 +4218,6 @@ function App() {
                 </>
               ) : (
                 <div className="muted">No requests yet.</div>
-              )}
-            </div>
-            <div className="terminal-filters">
-              {LOG_CATEGORIES.map((category) => (
-                <button
-                  key={category.id}
-                  type="button"
-                  className={`terminal-filter ${
-                    logFilters.includes(category.id) ? "active" : ""
-                  }`}
-                  onClick={() => toggleLogFilter(category.id)}
-                >
-                  {category.label}
-                </button>
-              ))}
-            </div>
-            <div className={`terminal-body ${terminalUnlocked ? "" : "blurred"}`}>
-              {terminalUnlocked ? (
-                filteredTerminalLines.length ? (
-                  filteredTerminalLines.map((line) => (
-                    <div key={line.id} className={`terminal-line terminal-line--${line.category}`}>
-                      <span className="terminal-stamp">{line.stamp}</span>
-                      <span className={`terminal-tag terminal-tag--${line.category}`}>
-                        {line.category}
-                      </span>
-                      <span className="terminal-message">{line.message}</span>
-                    </div>
-                  ))
-                ) : (
-                  <div className="muted">No terminal activity yet.</div>
-                )
-              ) : (
-                <div className="muted">Terminal locked. Unlock to start streaming logs.</div>
               )}
             </div>
             {perfRows.length ? (
