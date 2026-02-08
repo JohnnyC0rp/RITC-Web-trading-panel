@@ -4436,8 +4436,10 @@ function App() {
             </div>
             <div className="tutorial-block">
               <h4>Mouse Trading</h4>
-              <div className="muted">Left click places a BUY limit in the bid zone. Right click places a SELL limit in the ask zone.</div>
-              <div className="muted">If you click across the spread (buy above or sell below), it fires a market order.</div>
+              <div className="muted">Left click places a BUY. Right click places a SELL.</div>
+              <div className="muted">Bid zone = prices at or below the best bid. Ask zone = prices at or above the best ask.</div>
+              <div className="muted">Clicking in the spread does nothing (no order).</div>
+              <div className="muted">If you click across the spread (buy in ask zone or sell in bid zone), it submits a market order.</div>
             </div>
             <div className="tutorial-block">
               <h4>Shortcuts</h4>
