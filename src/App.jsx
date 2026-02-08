@@ -1027,7 +1027,7 @@ function App() {
     };
     setTerminalLines((prev) => {
       const next = [...prev, entry];
-      return next.slice(-400);
+      return next.slice(-100);
     });
   }, []);
 
