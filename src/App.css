@@ -1375,6 +1375,7 @@ button.full {
 .orderbook-layout {
   display: grid;
   gap: 16px;
+  align-items: start;
 }
 
 .orderbook-layout.single {
@@ -1394,11 +1395,14 @@ button.full {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
+  align-items: start;
 }
 
 .book-panel {
   display: grid;
   gap: 8px;
+  align-content: start;
+  align-self: start;
   padding: 8px;
   border-radius: 14px;
   border: 1px solid rgba(15, 23, 42, 0.08);

@@ -21,9 +21,13 @@ export default function PlotlyCandles({
 
   return (
     <div
-      style={{ width: "100%", height: `${height}px` }}
+      style={{
+        width: "100%",
+        height: `${height}px`,
+        cursor: chartTradingEnabled ? "crosshair" : "default",
+      }}
       onContextMenu={(event) => {
-        if (!chartTradingEnabled || !onChartTradeIntent) return;
+        if (!onChartTradeIntent) return;
         event.preventDefault();
         const hovered = hoverPriceRef.current;
         if (Number.isFinite(hovered)) {
@@ -42,7 +46,7 @@ export default function PlotlyCandles({
           hoverPriceRef.current = pickPointPrice(point);
         }}
         onClick={(event) => {
-          if (!chartTradingEnabled || !onChartTradeIntent) return;
+          if (!onChartTradeIntent) return;
           const point = event?.points?.[0];
           const price = pickPointPrice(point);
           if (Number.isFinite(price)) {

@@ -1050,6 +1050,7 @@ function App() {
   const clearNewsSortKeyRef = useRef(null);
   const endpointRateLimitUntilRef = useRef(new Map());
   const mnaGraphDefaultRef = useRef(null);
+  const chartTradingHintAtRef = useRef(0);
   const [useProxyLocal, setUseProxyLocal] = useState(false);
   const [useProxyRemote, setUseProxyRemote] = useState(true);
   const [proxyTargetRemote, setProxyTargetRemote] = useState("remote");
@@ -3735,6 +3736,14 @@ function App() {
 
   const handleChartTradeIntentForTicker = async (ticker, button, clickedPrice) => {
     if (!config || !ticker || !Number.isFinite(clickedPrice)) return;
+    if (!chartMouseTrading) {
+      const nowMs = Date.now();
+      if (nowMs - chartTradingHintAtRef.current > 2000) {
+        chartTradingHintAtRef.current = nowMs;
+        notify("Enable chart mouse trading in Chart Settings first.", "info");
+      }
+      return;
+    }
     const decimals = decimalsByTicker.get(ticker) ?? 2;
     const normalizedPrice = Number(Number(clickedPrice).toFixed(decimals));
     const security = securityByTicker.get(ticker) || {};

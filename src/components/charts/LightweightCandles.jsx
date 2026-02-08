@@ -179,14 +179,14 @@ export default function LightweightCandles({
     };
 
     const handleClick = (event) => {
-      if (!chartTradingEnabled || !onChartTradeIntent) return;
+      if (!onChartTradeIntent) return;
       const clickedPrice = toPrice(event.clientY);
       if (clickedPrice == null) return;
       onChartTradeIntent("left", clickedPrice);
     };
 
     const handleContextMenu = (event) => {
-      if (!chartTradingEnabled || !onChartTradeIntent) return;
+      if (!onChartTradeIntent) return;
       event.preventDefault();
       const clickedPrice = toPrice(event.clientY);
       if (clickedPrice == null) return;
@@ -225,5 +225,14 @@ export default function LightweightCandles({
     theme,
   ]);
 
-  return <div ref={containerRef} style={{ width: "100%", height: `${height}px` }} />;
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        width: "100%",
+        height: `${height}px`,
+        cursor: chartTradingEnabled ? "crosshair" : "default",
+      }}
+    />
+  );
 }
