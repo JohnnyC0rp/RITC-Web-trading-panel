@@ -10,6 +10,9 @@ export default function CandlesRenderer({
   dealPoints,
   openFillPoints,
   closeFillPoints,
+  limitLevels,
+  stopLossLevels,
+  takeProfitLevels,
   showRangeSlider,
   theme,
   height,
@@ -17,6 +20,8 @@ export default function CandlesRenderer({
   plotlyLayout,
   plotlyConfig,
   onPlotlyRelayout,
+  onChartTradeIntent,
+  chartTradingEnabled,
 }) {
   if (renderer === "lightweight") {
     return (
@@ -25,6 +30,11 @@ export default function CandlesRenderer({
         dealPoints={dealPoints}
         openFillPoints={openFillPoints}
         closeFillPoints={closeFillPoints}
+        limitLevels={limitLevels}
+        stopLossLevels={stopLossLevels}
+        takeProfitLevels={takeProfitLevels}
+        onChartTradeIntent={onChartTradeIntent}
+        chartTradingEnabled={chartTradingEnabled}
         theme={theme}
         height={height}
       />
@@ -38,6 +48,9 @@ export default function CandlesRenderer({
         dealPoints={dealPoints}
         openFillPoints={openFillPoints}
         closeFillPoints={closeFillPoints}
+        limitLevels={limitLevels}
+        stopLossLevels={stopLossLevels}
+        takeProfitLevels={takeProfitLevels}
         showRangeSlider={showRangeSlider}
         theme={theme}
         height={height}
@@ -52,6 +65,9 @@ export default function CandlesRenderer({
         dealPoints={dealPoints}
         openFillPoints={openFillPoints}
         closeFillPoints={closeFillPoints}
+        limitLevels={limitLevels}
+        stopLossLevels={stopLossLevels}
+        takeProfitLevels={takeProfitLevels}
         showRangeSlider={showRangeSlider}
         theme={theme}
         height={height}
@@ -66,6 +82,9 @@ export default function CandlesRenderer({
         dealPoints={dealPoints}
         openFillPoints={openFillPoints}
         closeFillPoints={closeFillPoints}
+        limitLevels={limitLevels}
+        stopLossLevels={stopLossLevels}
+        takeProfitLevels={takeProfitLevels}
         theme={theme}
         height={height}
       />
@@ -79,6 +98,8 @@ export default function CandlesRenderer({
       config={plotlyConfig}
       height={height}
       onRelayout={onPlotlyRelayout}
+      onChartTradeIntent={onChartTradeIntent}
+      chartTradingEnabled={chartTradingEnabled}
     />
   );
 }

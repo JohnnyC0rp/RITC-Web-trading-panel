@@ -75,6 +75,17 @@ const BOOK_ROW_HEIGHT_PX = 20;
 const BOOK_EDGE_BUFFER_TICKS = 10;
 const PNL_TICK_STEP = 5;
 const CANDLE_BUCKET = 5;
+const ORDERBOOK_DISPLAY_OPTIONS = [
+  { id: "both", label: "Books + Candles" },
+  { id: "books", label: "Books Only" },
+  { id: "candles", label: "Candles Only" },
+];
+const DEFAULT_ORDERBOOK_DISPLAY = ORDERBOOK_DISPLAY_OPTIONS[0].id;
+const DEFAULT_BRACKET_SETTINGS = {
+  enabled: false,
+  stopLossOffset: "0.30",
+  takeProfitOffset: "0.60",
+};
 
 const INDICATORS = [
   {
@@ -341,6 +352,40 @@ const parseVersionHistory = (raw) => {
 const formatNumber = (value, decimals = 2) => {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
   return Number(value).toFixed(decimals);
+};
+
+const firstFinite = (...values) => {
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
+
+const getOrderStopLoss = (order) =>
+  firstFinite(
+    order?.stop_loss,
+    order?.stopLoss,
+    order?.sl,
+    order?.stop,
+    order?.stopPrice
+  );
+
+const getOrderTakeProfit = (order) =>
+  firstFinite(
+    order?.take_profit,
+    order?.takeProfit,
+    order?.tp,
+    order?.target,
+    order?.target_price
+  );
+
+const formatPriceSet = (values, limit = 2) => {
+  if (!values || !values.size) return null;
+  const sorted = Array.from(values).sort((a, b) => Number(a) - Number(b));
+  if (sorted.length <= limit) return sorted.join("/");
+  const shown = sorted.slice(0, limit).join("/");
+  return `${shown}+${sorted.length - limit}`;
 };
 
 const formatStamp = (date) => {
@@ -869,6 +914,7 @@ function App() {
   const [tenders, setTenders] = useState([]);
   const [tenderPrices, setTenderPrices] = useState({});
   const bookScrollRef = useRef(null);
+  const bookScrollRefs = useRef({});
   const bookCenterRef = useRef({
     connectAt: null,
     caseKey: null,
@@ -884,6 +930,7 @@ function App() {
   const openOrdersRef = useRef([]);
   const cancelledOrdersRef = useRef(new Map());
   const orderTypeByIdRef = useRef(new Map());
+  const bracketByOrderIdRef = useRef(new Map());
   const pendingPlacementsRef = useRef([]);
   const seenFillIdsRef = useRef(new Set());
   const filledOrderIdsRef = useRef(new Set());
@@ -917,11 +964,14 @@ function App() {
   const [chartView, setChartView] = useState({});
   const [chartRenderer, setChartRenderer] = useState(DEFAULT_CANDLE_RENDERER);
   const [showChartSettings, setShowChartSettings] = useState(false);
+  const [chartMouseTrading, setChartMouseTrading] = useState(false);
   const [showRangeSlider, setShowRangeSlider] = useState(false);
   const [indicatorState, setIndicatorState] = useState(INDICATOR_DEFAULTS);
   const [indicatorInfo, setIndicatorInfo] = useState(null);
   const [theme, setTheme] = useState("light");
   const [bookView, setBookView] = useState("book");
+  const [orderbookDisplayMode, setOrderbookDisplayMode] = useState(DEFAULT_ORDERBOOK_DISPLAY);
+  const [bracketDefaults, setBracketDefaults] = useState(DEFAULT_BRACKET_SETTINGS);
   const [bookPanels, setBookPanels] = useState([{ id: BOOK_PANEL_PRIMARY_ID, ticker: "" }]);
 
   const [orderDraft, setOrderDraft] = useState({
@@ -1006,9 +1056,30 @@ function App() {
       if (stored.chartRenderer && isKnownCandleRenderer(stored.chartRenderer)) {
         setChartRenderer(stored.chartRenderer);
       }
+      if (typeof stored.chartMouseTrading === "boolean") {
+        setChartMouseTrading(stored.chartMouseTrading);
+      }
       if (typeof stored.showRangeSlider === "boolean") setShowRangeSlider(stored.showRangeSlider);
       if (typeof stored.showChartSettings === "boolean") setShowChartSettings(stored.showChartSettings);
       if (stored.bookView) setBookView(stored.bookView);
+      if (
+        stored.orderbookDisplayMode &&
+        ORDERBOOK_DISPLAY_OPTIONS.some((option) => option.id === stored.orderbookDisplayMode)
+      ) {
+        setOrderbookDisplayMode(stored.orderbookDisplayMode);
+      }
+      if (stored.bracketDefaults) {
+        setBracketDefaults((prev) => ({
+          ...prev,
+          ...stored.bracketDefaults,
+        }));
+      }
+      if (stored.quickOrderQuantity != null) {
+        setOrderDraft((prev) => ({
+          ...prev,
+          quantity: String(stored.quickOrderQuantity),
+        }));
+      }
       if (Array.isArray(stored.logFilters) && stored.logFilters.length) {
         setLogFilters(stored.logFilters);
       }
@@ -1053,17 +1124,25 @@ function App() {
     saveUiPrefs({
       theme,
       chartRenderer,
+      chartMouseTrading,
       showRangeSlider,
       showChartSettings,
       bookView,
+      orderbookDisplayMode,
+      bracketDefaults,
+      quickOrderQuantity: orderDraft.quantity,
       logFilters,
       indicators: indicatorState,
     });
   }, [
     bookView,
+    bracketDefaults,
     chartRenderer,
+    chartMouseTrading,
     indicatorState,
     logFilters,
+    orderDraft.quantity,
+    orderbookDisplayMode,
     showChartSettings,
     showRangeSlider,
     theme,
@@ -1992,7 +2071,24 @@ function App() {
       try {
         const orderData = await apiGet("/orders", { status: "OPEN" });
         if (!stop) {
-          const nextOrders = orderData || [];
+          const nextOrders = (orderData || []).map((order) => {
+            const orderId = order?.order_id ?? order?.id;
+            const localBracket = bracketByOrderIdRef.current.get(orderId) || null;
+            const stopLoss = firstFinite(getOrderStopLoss(order), localBracket?.stopLoss);
+            const takeProfit = firstFinite(getOrderTakeProfit(order), localBracket?.takeProfit);
+            if (orderId != null && (stopLoss != null || takeProfit != null)) {
+              bracketByOrderIdRef.current.set(orderId, {
+                stopLoss: stopLoss ?? null,
+                takeProfit: takeProfit ?? null,
+              });
+            }
+            if (stopLoss == null && takeProfit == null) return order;
+            return {
+              ...order,
+              ...(stopLoss != null ? { stop_loss: stopLoss } : {}),
+              ...(takeProfit != null ? { take_profit: takeProfit } : {}),
+            };
+          });
           const prevOrders = openOrdersRef.current || [];
           const prevMap = new Map(
             prevOrders.map((order) => [order.order_id ?? order.id, order])
@@ -2012,6 +2108,7 @@ function App() {
               }
               cancelledOrdersRef.current.delete(orderId);
               orderTypeByIdRef.current.delete(orderId);
+              bracketByOrderIdRef.current.delete(orderId);
               pendingPlacementsRef.current = pendingPlacementsRef.current.filter(
                 (entry) => entry.orderId !== orderId
               );
@@ -2202,10 +2299,28 @@ function App() {
     }
   }, [apiPost, config, log, notify]);
 
-  const placeQuickOrder = async (ticker, side, price, isMarket = false) => {
+  const placeQuickOrder = async (ticker, side, price, isMarket = false, source = "book") => {
     if (!config || !ticker) return;
-    const quantity = parseInt(orderDraft.quantity, 10) || 1;
-    const roundedPrice = Number(price);
+    const quantity = Math.max(1, parseInt(orderDraft.quantity, 10) || 1);
+    const decimals = decimalsByTicker.get(ticker) ?? 2;
+    const roundPrice = (value) => Number(Number(value).toFixed(decimals));
+    const roundedPrice = roundPrice(price);
+    const security = securityByTicker.get(ticker) || {};
+    const bid = Number(security.bid);
+    const ask = Number(security.ask);
+    const last = Number(security.last);
+    const currentPrice =
+      Number.isFinite(bid) && Number.isFinite(ask)
+        ? (bid + ask) / 2
+        : Number.isFinite(last)
+          ? last
+          : Number.isFinite(bid)
+            ? bid
+            : Number.isFinite(ask)
+              ? ask
+              : null;
+    const slOffset = Number(bracketDefaults.stopLossOffset);
+    const tpOffset = Number(bracketDefaults.takeProfitOffset);
     try {
       const payload = {
         ticker,
@@ -2214,18 +2329,55 @@ function App() {
         action: side,
         ...(isMarket ? {} : { price: roundedPrice }),
       };
+      const referencePrice = Number.isFinite(currentPrice)
+        ? (isMarket ? currentPrice : roundedPrice)
+        : roundedPrice;
+      const hasDefaultBracket =
+        bracketDefaults.enabled &&
+        Number.isFinite(referencePrice) &&
+        Number.isFinite(slOffset) &&
+        Number.isFinite(tpOffset) &&
+        slOffset > 0 &&
+        tpOffset > 0;
+      if (hasDefaultBracket) {
+        const stopLoss =
+          side === "BUY" ? referencePrice - slOffset : referencePrice + slOffset;
+        const takeProfit =
+          side === "BUY" ? referencePrice + tpOffset : referencePrice - tpOffset;
+        payload.stop_loss = roundPrice(stopLoss);
+        payload.take_profit = roundPrice(takeProfit);
+      }
       const response = await apiPost("/orders", payload);
       const orderId = response?.order_id ?? response?.id ?? null;
       const kind = isMarket ? "market" : "limit";
       if (orderId != null) {
         orderTypeByIdRef.current.set(orderId, kind);
+        if (payload.stop_loss != null || payload.take_profit != null) {
+          bracketByOrderIdRef.current.set(orderId, {
+            stopLoss: payload.stop_loss ?? null,
+            takeProfit: payload.take_profit ?? null,
+          });
+        }
       }
       pendingPlacementsRef.current = [
-        { orderId, kind, ticker, side, qty: quantity, placedAt: Date.now() },
+        {
+          orderId,
+          kind,
+          ticker,
+          side,
+          qty: quantity,
+          stopLoss: payload.stop_loss ?? null,
+          takeProfit: payload.take_profit ?? null,
+          placedAt: Date.now(),
+        },
         ...pendingPlacementsRef.current,
       ].slice(0, 40);
       const priceLabel = isMarket ? "MKT" : roundedPrice;
-      log(`Quick order: ${side} ${quantity} ${ticker} @ ${priceLabel}`, "order");
+      const bracketLabel =
+        payload.stop_loss != null || payload.take_profit != null
+          ? ` (SL ${payload.stop_loss ?? "—"} / TP ${payload.take_profit ?? "—"})`
+          : "";
+      log(`Quick order (${source}): ${side} ${quantity} ${ticker} @ ${priceLabel}${bracketLabel}`, "order");
       playSound(kind === "market" ? "marketPlaced" : "limitPlaced");
     } catch (error) {
       log(`Quick order error: ${error?.data?.message || error.message}`, "error");
@@ -2302,16 +2454,47 @@ function App() {
       const qty = Number(order.quantity ?? order.qty ?? 0);
       const tickerMap = map.get(ticker) || new Map();
       const entry =
-        tickerMap.get(key) || { buyQty: 0, buyCount: 0, sellQty: 0, sellCount: 0 };
+        tickerMap.get(key) || {
+          buyQty: 0,
+          buyCount: 0,
+          sellQty: 0,
+          sellCount: 0,
+          buyStops: new Set(),
+          buyTargets: new Set(),
+          sellStops: new Set(),
+          sellTargets: new Set(),
+        };
+      const stopLoss = getOrderStopLoss(order);
+      const takeProfit = getOrderTakeProfit(order);
       if (side === "BUY") {
         entry.buyQty += qty;
         entry.buyCount += 1;
+        if (stopLoss != null) entry.buyStops.add(Number(stopLoss).toFixed(decimals));
+        if (takeProfit != null) entry.buyTargets.add(Number(takeProfit).toFixed(decimals));
       } else if (side === "SELL") {
         entry.sellQty += qty;
         entry.sellCount += 1;
+        if (stopLoss != null) entry.sellStops.add(Number(stopLoss).toFixed(decimals));
+        if (takeProfit != null) entry.sellTargets.add(Number(takeProfit).toFixed(decimals));
       }
       tickerMap.set(key, entry);
       map.set(ticker, tickerMap);
+    });
+    return map;
+  }, [decimalsByTicker, orders]);
+
+  const riskLevelsByTicker = useMemo(() => {
+    const map = new Map();
+    orders.forEach((order) => {
+      const ticker = order?.ticker;
+      if (!ticker) return;
+      const decimals = decimalsByTicker.get(ticker) ?? 2;
+      const entry = map.get(ticker) || { stopLoss: new Set(), takeProfit: new Set() };
+      const stopLoss = getOrderStopLoss(order);
+      const takeProfit = getOrderTakeProfit(order);
+      if (stopLoss != null) entry.stopLoss.add(Number(stopLoss).toFixed(decimals));
+      if (takeProfit != null) entry.takeProfit.add(Number(takeProfit).toFixed(decimals));
+      map.set(ticker, entry);
     });
     return map;
   }, [decimalsByTicker, orders]);
@@ -2344,6 +2527,17 @@ function App() {
       const orderPrices = ordersByTickerPrice.get(ticker);
       if (orderPrices) {
         orderPrices.forEach((_, key) => {
+          const value = Number(key);
+          if (Number.isFinite(value)) prices.push(value);
+        });
+      }
+      const riskLevels = riskLevelsByTicker.get(ticker);
+      if (riskLevels) {
+        riskLevels.stopLoss.forEach((key) => {
+          const value = Number(key);
+          if (Number.isFinite(value)) prices.push(value);
+        });
+        riskLevels.takeProfit.forEach((key) => {
           const value = Number(key);
           if (Number.isFinite(value)) prices.push(value);
         });
@@ -2403,6 +2597,7 @@ function App() {
     booksByTicker,
     decimalsByTicker,
     ordersByTickerPrice,
+    riskLevelsByTicker,
     securityByTicker,
     selectedTicker,
   ]);
@@ -2497,6 +2692,10 @@ function App() {
         positionRange?.entryPrice != null
           ? Number(positionRange.entryPrice).toFixed(quotedDecimals)
           : null;
+      const riskLevels = riskLevelsByTicker.get(ticker) || {
+        stopLoss: new Set(),
+        takeProfit: new Set(),
+      };
       const rows = Array.from({ length: rowCount }, (_, idx) => {
         const offset = halfRows - idx;
         const tick = anchorTick + offset;
@@ -2518,6 +2717,8 @@ function App() {
           isEntry: entryKey ? key === entryKey : false,
           entryDirection: positionRange?.direction || null,
           entryTone: positionRange?.entryTone || null,
+          hasStopLoss: riskLevels.stopLoss.has(key),
+          hasTakeProfit: riskLevels.takeProfit.has(key),
           key,
         };
       });
@@ -2543,6 +2744,7 @@ function App() {
       isCaseStopped,
       ordersByTickerPrice,
       positionMap,
+      riskLevelsByTicker,
       securityByTicker,
     ]
   );
@@ -2645,17 +2847,30 @@ function App() {
     });
   }, [bookStateByTicker, bookTickers, connectionStatus]);
 
-  const centerOrderBook = useCallback(() => {
-    const container = bookScrollRef.current;
-    if (!container) return false;
-    const target = container.querySelector('[data-center="true"]');
-    if (!target) return false;
-    const targetTop = target.offsetTop;
-    const targetHeight = target.offsetHeight || 0;
-    const containerHeight = container.clientHeight || 0;
-    const nextScrollTop = Math.max(0, targetTop - containerHeight / 2 + targetHeight / 2);
-    container.scrollTo({ top: nextScrollTop, behavior: "auto" });
-    return true;
+  const centerOrderBook = useCallback((panelId = null) => {
+    const centerContainer = (container) => {
+      if (!container) return false;
+      const target = container.querySelector('[data-center="true"]');
+      if (!target) return false;
+      const targetTop = target.offsetTop;
+      const targetHeight = target.offsetHeight || 0;
+      const containerHeight = container.clientHeight || 0;
+      const nextScrollTop = Math.max(0, targetTop - containerHeight / 2 + targetHeight / 2);
+      container.scrollTo({ top: nextScrollTop, behavior: "auto" });
+      return true;
+    };
+
+    if (panelId) {
+      return centerContainer(bookScrollRefs.current[panelId] || null);
+    }
+
+    const containers = Object.values(bookScrollRefs.current || {});
+    if (!containers.length) return false;
+    let centered = false;
+    containers.forEach((container) => {
+      centered = centerContainer(container) || centered;
+    });
+    return centered;
   }, []);
 
   useEffect(() => {
@@ -2710,7 +2925,7 @@ function App() {
         setBookView("ladder");
         return;
       }
-      if (key === "r") {
+      if (key === "c" || key === "r") {
         centerOrderBook();
         return;
       }
@@ -2901,6 +3116,91 @@ function App() {
     [fillMarkers.closes]
   );
 
+  const orderLevels = useMemo(() => {
+    if (!selectedTicker) {
+      return { limit: [], stopLoss: [], takeProfit: [] };
+    }
+    const decimals = decimalsByTicker.get(selectedTicker) ?? 2;
+    const limitByKey = new Map();
+    const stopByKey = new Map();
+    const takeByKey = new Map();
+    orders.forEach((order) => {
+      if (order?.ticker !== selectedTicker) return;
+      const side = String(order.action || "").toUpperCase() === "SELL" ? "SELL" : "BUY";
+      const type = String(order.type || "").toUpperCase();
+      const orderPrice = firstFinite(order?.price);
+      const stopLoss = getOrderStopLoss(order);
+      const takeProfit = getOrderTakeProfit(order);
+
+      if (type === "LIMIT" && orderPrice != null) {
+        const level = Number(orderPrice).toFixed(decimals);
+        const key = `${side}:${level}`;
+        const existing = limitByKey.get(key) || { price: Number(level), side, count: 0 };
+        existing.count += 1;
+        limitByKey.set(key, existing);
+      }
+      if (stopLoss != null) {
+        const key = Number(stopLoss).toFixed(decimals);
+        const existing = stopByKey.get(key) || { price: Number(key), count: 0 };
+        existing.count += 1;
+        stopByKey.set(key, existing);
+      }
+      if (takeProfit != null) {
+        const key = Number(takeProfit).toFixed(decimals);
+        const existing = takeByKey.get(key) || { price: Number(key), count: 0 };
+        existing.count += 1;
+        takeByKey.set(key, existing);
+      }
+    });
+    return {
+      limit: Array.from(limitByKey.values()).sort((a, b) => a.price - b.price),
+      stopLoss: Array.from(stopByKey.values()).sort((a, b) => a.price - b.price),
+      takeProfit: Array.from(takeByKey.values()).sort((a, b) => a.price - b.price),
+    };
+  }, [decimalsByTicker, orders, selectedTicker]);
+
+  const orderLevelTraces = useMemo(() => {
+    if (!candleData?.x?.length) return [];
+    const xStart = candleData.x[0];
+    const xEnd = candleData.x[candleData.x.length - 1];
+    const traces = [];
+    orderLevels.limit.forEach((level) => {
+      traces.push({
+        type: "scatter",
+        mode: "lines",
+        name: `${level.side} Limit (${level.count})`,
+        x: [xStart, xEnd],
+        y: [level.price, level.price],
+        line: {
+          color: level.side === "BUY" ? "rgba(37, 99, 235, 0.9)" : "rgba(249, 115, 22, 0.9)",
+          width: 1.25,
+          dash: "dot",
+        },
+      });
+    });
+    orderLevels.stopLoss.forEach((level) => {
+      traces.push({
+        type: "scatter",
+        mode: "lines",
+        name: `SL (${level.count})`,
+        x: [xStart, xEnd],
+        y: [level.price, level.price],
+        line: { color: "rgba(220, 38, 38, 0.85)", width: 1.1, dash: "dash" },
+      });
+    });
+    orderLevels.takeProfit.forEach((level) => {
+      traces.push({
+        type: "scatter",
+        mode: "lines",
+        name: `TP (${level.count})`,
+        x: [xStart, xEnd],
+        y: [level.price, level.price],
+        line: { color: "rgba(22, 163, 74, 0.85)", width: 1.1, dash: "dash" },
+      });
+    });
+    return traces;
+  }, [candleData, orderLevels]);
+
   const indicatorTraces = useMemo(() => {
     if (!indicatorData) return [];
     const traces = [];
@@ -2983,6 +3283,7 @@ function App() {
           decreasing: { line: { color: "#C0392B" } },
         },
         ...(dealTrace ? [dealTrace] : []),
+        ...orderLevelTraces,
         ...(openFillPoints.length
           ? [
               {
@@ -3095,6 +3396,31 @@ function App() {
       };
     });
   }, []);
+
+  const handleChartTradeIntent = async (button, clickedPrice) => {
+    if (!config || !selectedTicker || !Number.isFinite(clickedPrice)) return;
+    const decimals = decimalsByTicker.get(selectedTicker) ?? 2;
+    const normalizedPrice = Number(Number(clickedPrice).toFixed(decimals));
+    const bidValue = firstFinite(bestBidPrice);
+    const askValue = firstFinite(bestAskPrice);
+    const liveMid = firstFinite(
+      midPrice,
+      bidValue != null && askValue != null
+        ? (bidValue + askValue) / 2
+        : null,
+      bidValue,
+      askValue,
+      lastPrice
+    );
+    if (liveMid == null) {
+      notify("Cannot trade from chart yet, waiting for live price.", "info");
+      return;
+    }
+    const action = button === "right" ? "SELL" : "BUY";
+    const isMarket =
+      action === "BUY" ? normalizedPrice > liveMid : normalizedPrice < liveMid;
+    await placeQuickOrder(selectedTicker, action, normalizedPrice, isMarket, "chart");
+  };
 
   const openPositionRows = useMemo(() => {
     return securities
@@ -3238,7 +3564,8 @@ function App() {
     { keys: "Space", action: "Bulk cancel open orders." },
     { keys: "B", action: "Switch to Book Trader view." },
     { keys: "L", action: "Switch to Ladder Trader view." },
-    { keys: "R", action: "Re-center the order book." },
+    { keys: "C", action: "Re-center order book view." },
+    { keys: "R", action: "Re-center order book view (legacy alias)." },
     { keys: "A", action: "Add another order book panel." },
     { keys: "Esc", action: "Close open pop-ups." },
   ];
@@ -3329,6 +3656,10 @@ function App() {
     tickProgress && tickProgress > 0
       ? `clamp(6px, ${(tickProgress * 100).toFixed(2)}%, 100%)`
       : "0px";
+  const showOrderbookPanels = orderbookDisplayMode !== "candles";
+  const showCandlesPanel = orderbookDisplayMode !== "books";
+  const splitOrderbookLayout = showOrderbookPanels && showCandlesPanel && !isMultiBook;
+  const chartPanelHeight = showOrderbookPanels ? (isMultiBook ? 320 : 420) : 560;
 
   const renderChartPanel = (inline = false) => (
     <div className={`orderbook-candles ${inline ? "orderbook-candles--inline" : ""}`}>
@@ -3366,12 +3697,84 @@ function App() {
             />
             Enable range slider
           </label>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={chartMouseTrading}
+              onChange={(event) => setChartMouseTrading(event.target.checked)}
+            />
+            Enable chart mouse trading
+          </label>
+          <label className="chart-control chart-control--small">
+            <span>Quick Qty</span>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={orderDraft.quantity}
+              onChange={(event) =>
+                setOrderDraft((prev) => ({
+                  ...prev,
+                  quantity: event.target.value,
+                }))
+              }
+            />
+          </label>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={Boolean(bracketDefaults.enabled)}
+              onChange={(event) =>
+                setBracketDefaults((prev) => ({
+                  ...prev,
+                  enabled: event.target.checked,
+                }))
+              }
+            />
+            Apply default TP/SL to quick orders
+          </label>
+          <label className="chart-control chart-control--small">
+            <span>SL Offset</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={bracketDefaults.stopLossOffset}
+              disabled={!bracketDefaults.enabled}
+              onChange={(event) =>
+                setBracketDefaults((prev) => ({
+                  ...prev,
+                  stopLossOffset: event.target.value,
+                }))
+              }
+            />
+          </label>
+          <label className="chart-control chart-control--small">
+            <span>TP Offset</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={bracketDefaults.takeProfitOffset}
+              disabled={!bracketDefaults.enabled}
+              onChange={(event) =>
+                setBracketDefaults((prev) => ({
+                  ...prev,
+                  takeProfitOffset: event.target.value,
+                }))
+              }
+            />
+          </label>
           <div className="muted chart-engine-hint">{chartRendererMeta.description}</div>
           {!chartRendererMeta.supportsRangeSlider && (
             <div className="muted chart-engine-hint">
               Range slider is unavailable for this renderer.
             </div>
           )}
+          <div className="muted chart-engine-hint">
+            Chart trading: LMB = buy (below mid limit, above mid market), RMB = sell (above mid limit, below mid market).
+            {chartMouseTrading ? " Trading is active." : " Enable it before sending chart orders."}
+          </div>
           {chartRendererMeta.supportsIndicators ? (
             <details className="indicator-menu">
               <summary>Indicators ({INDICATORS.length})</summary>
@@ -3421,13 +3824,18 @@ function App() {
           dealPoints={dealPoints}
           openFillPoints={openFillPoints}
           closeFillPoints={closeFillPoints}
+          limitLevels={orderLevels.limit}
+          stopLossLevels={orderLevels.stopLoss}
+          takeProfitLevels={orderLevels.takeProfit}
           showRangeSlider={showRangeSlider}
           theme={theme}
-          height={isMultiBook ? 320 : 420}
+          height={chartPanelHeight}
           plotlyData={chartData}
           plotlyLayout={chartLayout}
           plotlyConfig={chartConfig}
           onPlotlyRelayout={handlePlotlyRelayout}
+          onChartTradeIntent={handleChartTradeIntent}
+          chartTradingEnabled={Boolean(config && selectedTicker && chartMouseTrading)}
         />
       )}
     </div>
@@ -3894,11 +4302,21 @@ function App() {
               {orders.length === 0 && <div className="muted">No open orders yet.</div>}
               {orders.map((order) => {
                 const orderId = order.order_id ?? order.id;
+                const stopLoss = getOrderStopLoss(order);
+                const takeProfit = getOrderTakeProfit(order);
                 return (
                   <div key={orderId} className="order-row">
                     <div>
                       <strong>{order.ticker}</strong>
-                      <div className="muted">{order.action} {order.quantity} @ {order.price}</div>
+                      <div className="muted">
+                        {order.action} {order.quantity} @ {order.price ?? "MKT"}
+                        {(stopLoss != null || takeProfit != null) && (
+                          <>
+                            {" · "}
+                            SL {stopLoss != null ? stopLoss : "—"} · TP {takeProfit != null ? takeProfit : "—"}
+                          </>
+                        )}
+                      </div>
                     </div>
                     <button type="button" className="ghost" onClick={() => handleCancel(orderId)}>
                       Cancel
@@ -4060,33 +4478,50 @@ function App() {
                     Ladder Trader
                   </button>
                 </div>
+                <div className="segmented segmented--compact">
+                  {ORDERBOOK_DISPLAY_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={orderbookDisplayMode === option.id ? "active" : ""}
+                      onClick={() => setOrderbookDisplayMode(option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
                 <button
                   type="button"
                   className="ghost small"
                   onClick={addBookPanel}
+                  disabled={!showOrderbookPanels}
                 >
                   Add Book
                 </button>
               </div>
             </div>
-            <div className={`orderbook-layout ${isMultiBook ? "multi" : "single"}`}>
-              <div className="orderbook-grid">
-                {bookStates.map(({ panel, state }) => {
+            <div className={`orderbook-layout ${splitOrderbookLayout ? "single" : "multi"}`}>
+              {showOrderbookPanels && (
+                <div className="orderbook-grid">
+                  {bookStates.map(({ panel, state }) => {
                   const panelOrders = state.ordersByPrice;
                   return (
                     <div key={panel.id} className={`book-panel ${bookView}`}>
                       <div className="book-panel-header">
-                        <select
-                          value={panel.ticker}
-                          onChange={(event) => updateBookPanelTicker(panel.id, event.target.value)}
-                        >
-                          <option value="">Select</option>
-                          {securities.map((sec) => (
-                            <option key={sec.ticker} value={sec.ticker}>
-                              {sec.ticker}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="book-panel-controls">
+                          <select
+                            value={panel.ticker}
+                            onChange={(event) => updateBookPanelTicker(panel.id, event.target.value)}
+                          >
+                            <option value="">Select</option>
+                            {securities.map((sec) => (
+                              <option key={sec.ticker} value={sec.ticker}>
+                                {sec.ticker}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="book-center-hint">Use C to center view</span>
+                        </div>
                         {panel.id !== BOOK_PANEL_PRIMARY_ID && (
                           <button
                             type="button"
@@ -4119,17 +4554,40 @@ function App() {
                         {/* Manual scroll stays manual. No auto-centering hijinks. */}
                         <div
                           className={`book-scroll ${bookView}`}
-                          ref={panel.id === BOOK_PANEL_PRIMARY_ID ? bookScrollRef : undefined}
+                          ref={(node) => {
+                            if (panel.id === BOOK_PANEL_PRIMARY_ID) {
+                              bookScrollRef.current = node;
+                            }
+                            if (node) {
+                              bookScrollRefs.current[panel.id] = node;
+                            } else {
+                              delete bookScrollRefs.current[panel.id];
+                            }
+                          }}
                         >
                           {state.rows.map((row, index) => {
                             const bidRatio = row.bidQty / state.maxVolume;
                             const askRatio = row.askQty / state.maxVolume;
                             const bidTone = getVolumeTone(bidRatio);
                             const askTone = getVolumeTone(askRatio);
-                            const myOrders = panelOrders.get(row.key) || {};
+                            const myOrders =
+                              panelOrders.get(row.key) || {
+                                buyQty: 0,
+                                buyCount: 0,
+                                sellQty: 0,
+                                sellCount: 0,
+                                buyStops: new Set(),
+                                buyTargets: new Set(),
+                                sellStops: new Set(),
+                                sellTargets: new Set(),
+                              };
                             const hasOrders = myOrders.buyCount || myOrders.sellCount;
                             const bidTrader = myOrders.buyCount ? "ME" : "ANON";
                             const askTrader = myOrders.sellCount ? "ME" : "ANON";
+                            const buyStopLabel = formatPriceSet(myOrders.buyStops);
+                            const buyTargetLabel = formatPriceSet(myOrders.buyTargets);
+                            const sellStopLabel = formatPriceSet(myOrders.sellStops);
+                            const sellTargetLabel = formatPriceSet(myOrders.sellTargets);
                             const bestBid = Number(state.bestBidPrice ?? state.midPrice);
                             const bestAsk = Number(state.bestAskPrice ?? state.midPrice);
                             const isBidZone = Number.isFinite(bestBid)
@@ -4200,6 +4658,12 @@ function App() {
                                           <span className="book-chip">
                                             {formatQty(myOrders.buyQty)}
                                           </span>
+                                          {buyStopLabel && (
+                                            <span className="book-chip book-chip--sl">SL {buyStopLabel}</span>
+                                          )}
+                                          {buyTargetLabel && (
+                                            <span className="book-chip book-chip--tp">TP {buyTargetLabel}</span>
+                                          )}
                                         </span>
                                       ) : null}
                                       <span className="book-value">{formatQty(row.bidQty)}</span>
@@ -4215,6 +4679,8 @@ function App() {
                                         </span>
                                       )}
                                       {row.price.toFixed(state.quotedDecimals)}
+                                      {row.hasStopLoss && <span className="book-risk-tag sl">SL</span>}
+                                      {row.hasTakeProfit && <span className="book-risk-tag tp">TP</span>}
                                     </span>
                                     <span
                                       className={`price ask-price ${row.isMid ? "mid" : ""} ${
@@ -4250,6 +4716,12 @@ function App() {
                                           <span className="book-chip">
                                             {formatQty(myOrders.sellQty)}
                                           </span>
+                                          {sellStopLabel && (
+                                            <span className="book-chip book-chip--sl">SL {sellStopLabel}</span>
+                                          )}
+                                          {sellTargetLabel && (
+                                            <span className="book-chip book-chip--tp">TP {sellTargetLabel}</span>
+                                          )}
                                         </span>
                                       ) : null}
                                       <span className="book-value">{formatQty(row.askQty)}</span>
@@ -4284,6 +4756,12 @@ function App() {
                                           <span className="book-chip">
                                             {formatQty(myOrders.buyQty)}
                                           </span>
+                                          {buyStopLabel && (
+                                            <span className="book-chip book-chip--sl">SL {buyStopLabel}</span>
+                                          )}
+                                          {buyTargetLabel && (
+                                            <span className="book-chip book-chip--tp">TP {buyTargetLabel}</span>
+                                          )}
                                         </span>
                                       ) : null}
                                       <span className="book-value">{formatQty(row.bidQty)}</span>
@@ -4299,6 +4777,8 @@ function App() {
                                         </span>
                                       )}
                                       {row.price.toFixed(state.quotedDecimals)}
+                                      {row.hasStopLoss && <span className="book-risk-tag sl">SL</span>}
+                                      {row.hasTakeProfit && <span className="book-risk-tag tp">TP</span>}
                                     </span>
                                     <span
                                       className={`book-cell ask ${
@@ -4322,6 +4802,12 @@ function App() {
                                           <span className="book-chip">
                                             {formatQty(myOrders.sellQty)}
                                           </span>
+                                          {sellStopLabel && (
+                                            <span className="book-chip book-chip--sl">SL {sellStopLabel}</span>
+                                          )}
+                                          {sellTargetLabel && (
+                                            <span className="book-chip book-chip--tp">TP {sellTargetLabel}</span>
+                                          )}
                                         </span>
                                       ) : null}
                                       <span className="book-value">{formatQty(row.askQty)}</span>
@@ -4333,12 +4819,12 @@ function App() {
                           })}
                         </div>
                       </div>
-                      {isMultiBook && panel.id === BOOK_PANEL_PRIMARY_ID && renderChartPanel(true)}
                     </div>
                   );
                 })}
               </div>
-              {!isMultiBook && renderChartPanel(false)}
+              )}
+              {showCandlesPanel && renderChartPanel(showOrderbookPanels && isMultiBook)}
             </div>
           </section>
           

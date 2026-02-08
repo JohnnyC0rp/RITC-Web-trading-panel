@@ -13,6 +13,9 @@ export default function D3Candles({
   dealPoints,
   openFillPoints,
   closeFillPoints,
+  limitLevels,
+  stopLossLevels,
+  takeProfitLevels,
   theme,
   height,
 }) {
@@ -98,6 +101,53 @@ export default function D3Candles({
       .call((group) => group.selectAll("line").attr("stroke", palette.grid))
       .call((group) => group.select("path").attr("stroke", palette.grid));
 
+    const levelLines = [
+      ...limitLevels.map((level) => ({
+        price: level.price,
+        label: level.side === "BUY" ? `LMT B x${level.count}` : `LMT S x${level.count}`,
+        color: level.side === "BUY" ? "#2563eb" : "#f97316",
+        dash: "2,2",
+      })),
+      ...stopLossLevels.map((level) => ({
+        price: level.price,
+        label: `SL x${level.count}`,
+        color: "#dc2626",
+        dash: "4,3",
+      })),
+      ...takeProfitLevels.map((level) => ({
+        price: level.price,
+        label: `TP x${level.count}`,
+        color: "#16a34a",
+        dash: "4,3",
+      })),
+    ];
+
+    const levelLayer = svg.append("g");
+    levelLayer
+      .selectAll("line.level")
+      .data(levelLines.filter((line) => Number.isFinite(line.price)))
+      .join("line")
+      .attr("class", "level")
+      .attr("x1", margin.left)
+      .attr("x2", margin.left + innerWidth)
+      .attr("y1", (line) => y(line.price))
+      .attr("y2", (line) => y(line.price))
+      .attr("stroke", (line) => line.color)
+      .attr("stroke-width", 1.1)
+      .attr("stroke-dasharray", (line) => line.dash);
+
+    levelLayer
+      .selectAll("text.level-label")
+      .data(levelLines.filter((line) => Number.isFinite(line.price)))
+      .join("text")
+      .attr("class", "level-label")
+      .attr("x", margin.left + innerWidth - 4)
+      .attr("y", (line) => y(line.price) - 2)
+      .attr("text-anchor", "end")
+      .attr("fill", (line) => line.color)
+      .attr("font-size", 9)
+      .text((line) => line.label);
+
     const candleLayer = svg.append("g");
 
     candleLayer
@@ -166,7 +216,18 @@ export default function D3Candles({
       .attr("fill", (point) => (point.side === "BUY" ? palette.closeBuy : palette.closeSell))
       .attr("stroke", palette.border)
       .attr("stroke-width", 0.8);
-  }, [candles, closeFillPoints, dealPoints, height, openFillPoints, theme, width]);
+  }, [
+    candles,
+    closeFillPoints,
+    dealPoints,
+    height,
+    limitLevels,
+    openFillPoints,
+    stopLossLevels,
+    takeProfitLevels,
+    theme,
+    width,
+  ]);
 
   return (
     <div ref={wrapRef} style={{ width: "100%", height: `${height}px` }}>

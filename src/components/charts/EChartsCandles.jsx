@@ -9,6 +9,9 @@ export default function EChartsCandles({
   dealPoints,
   openFillPoints,
   closeFillPoints,
+  limitLevels,
+  stopLossLevels,
+  takeProfitLevels,
   showRangeSlider,
   theme,
   height,
@@ -21,6 +24,27 @@ export default function EChartsCandles({
     const openSells = openFillPoints.filter((point) => point.side === "SELL");
     const closeBuys = closeFillPoints.filter((point) => point.side === "BUY");
     const closeSells = closeFillPoints.filter((point) => point.side === "SELL");
+    const lineLevels = [
+      ...limitLevels.map((level) => ({
+        name: level.side === "BUY" ? `LMT B x${level.count}` : `LMT S x${level.count}`,
+        yAxis: level.price,
+        lineStyle: {
+          color: level.side === "BUY" ? "#2563eb" : "#f97316",
+          type: "dotted",
+          width: 1.2,
+        },
+      })),
+      ...stopLossLevels.map((level) => ({
+        name: `SL x${level.count}`,
+        yAxis: level.price,
+        lineStyle: { color: "#dc2626", type: "dashed", width: 1.1 },
+      })),
+      ...takeProfitLevels.map((level) => ({
+        name: `TP x${level.count}`,
+        yAxis: level.price,
+        lineStyle: { color: "#16a34a", type: "dashed", width: 1.1 },
+      })),
+    ];
 
     return {
       animation: false,
@@ -73,6 +97,14 @@ export default function EChartsCandles({
             borderColor: palette.up,
             borderColor0: palette.down,
           },
+          markLine: lineLevels.length
+            ? {
+                symbol: "none",
+                animation: false,
+                label: { show: true, color: palette.text, fontSize: 10 },
+                data: lineLevels,
+              }
+            : undefined,
         },
         ...(dealPoints.length
           ? [
@@ -136,7 +168,17 @@ export default function EChartsCandles({
           : []),
       ],
     };
-  }, [candles, closeFillPoints, dealPoints, openFillPoints, showRangeSlider, theme]);
+  }, [
+    candles,
+    closeFillPoints,
+    dealPoints,
+    limitLevels,
+    openFillPoints,
+    showRangeSlider,
+    stopLossLevels,
+    takeProfitLevels,
+    theme,
+  ]);
 
   return (
     <ReactECharts

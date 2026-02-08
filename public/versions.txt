@@ -1,3 +1,9 @@
+2026-02-08T15:20:28Z
+🕯️ Order book display modes now support Books + Candles, Books only, and Candles only.
+🖱️ Chart mouse trading added with LMB/RMB quick-order logic and default TP/SL presets.
+🎯 Open-order limit, TP, and SL levels now render on charts and inside order-book rows.
+🧭 Multi-book layout no longer embeds candles inside the primary panel, plus C hotkey centering hints.
+==================
 2026-02-08T15:02:58Z
 🎛️ Chart renderer now defaults to Lightweight for first-time visitors while keeping per-user saved selection.
 🤍 Chart panels switched to white backgrounds across supported renderers and settings surfaces.

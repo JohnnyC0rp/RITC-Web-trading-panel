@@ -10,6 +10,11 @@ export default function LightweightCandles({
   dealPoints,
   openFillPoints,
   closeFillPoints,
+  limitLevels,
+  stopLossLevels,
+  takeProfitLevels,
+  onChartTradeIntent,
+  chartTradingEnabled,
   theme,
   height,
 }) {
@@ -112,7 +117,65 @@ export default function LightweightCandles({
     ];
 
     candleSeries.setMarkers(markerData);
+
+    const addPriceLine = (price, title, color, lineStyle = 2) => {
+      const numeric = Number(price);
+      if (!Number.isFinite(numeric)) return null;
+      return candleSeries.createPriceLine({
+        price: numeric,
+        color,
+        lineWidth: 1,
+        lineStyle,
+        axisLabelVisible: true,
+        title,
+      });
+    };
+
+    const priceLines = [
+      ...limitLevels
+        .map((level) =>
+          addPriceLine(
+            level.price,
+            level.side === "BUY" ? `LMT B x${level.count}` : `LMT S x${level.count}`,
+            level.side === "BUY" ? "#2563eb" : "#f97316",
+            1
+          )
+        )
+        .filter(Boolean),
+      ...stopLossLevels
+        .map((level) => addPriceLine(level.price, `SL x${level.count}`, "#dc2626", 2))
+        .filter(Boolean),
+      ...takeProfitLevels
+        .map((level) => addPriceLine(level.price, `TP x${level.count}`, "#16a34a", 2))
+        .filter(Boolean),
+    ];
+
     chart.timeScale().fitContent();
+
+    const toPrice = (clientY) => {
+      const rect = container.getBoundingClientRect();
+      const y = clientY - rect.top;
+      const numeric = candleSeries.coordinateToPrice(y);
+      return Number.isFinite(Number(numeric)) ? Number(numeric) : null;
+    };
+
+    const handleClick = (event) => {
+      if (!chartTradingEnabled || !onChartTradeIntent) return;
+      const clickedPrice = toPrice(event.clientY);
+      if (clickedPrice == null) return;
+      onChartTradeIntent("left", clickedPrice);
+    };
+
+    const handleContextMenu = (event) => {
+      if (!chartTradingEnabled || !onChartTradeIntent) return;
+      event.preventDefault();
+      const clickedPrice = toPrice(event.clientY);
+      if (clickedPrice == null) return;
+      onChartTradeIntent("right", clickedPrice);
+    };
+
+    container.addEventListener("click", handleClick);
+    container.addEventListener("contextmenu", handleContextMenu);
 
     const resizeObserver = new ResizeObserver((entries) => {
       const nextWidth = entries[0]?.contentRect?.width;
@@ -122,10 +185,25 @@ export default function LightweightCandles({
     resizeObserver.observe(container);
 
     return () => {
+      container.removeEventListener("click", handleClick);
+      container.removeEventListener("contextmenu", handleContextMenu);
+      priceLines.forEach((line) => candleSeries.removePriceLine(line));
       resizeObserver.disconnect();
       chart.remove();
     };
-  }, [candles, closeFillPoints, dealPoints, height, openFillPoints, theme]);
+  }, [
+    candles,
+    chartTradingEnabled,
+    closeFillPoints,
+    dealPoints,
+    height,
+    limitLevels,
+    onChartTradeIntent,
+    openFillPoints,
+    stopLossLevels,
+    takeProfitLevels,
+    theme,
+  ]);
 
   return <div ref={containerRef} style={{ width: "100%", height: `${height}px` }} />;
 }

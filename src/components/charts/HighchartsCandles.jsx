@@ -10,6 +10,9 @@ export default function HighchartsCandles({
   dealPoints,
   openFillPoints,
   closeFillPoints,
+  limitLevels,
+  stopLossLevels,
+  takeProfitLevels,
   showRangeSlider,
   theme,
   height,
@@ -79,6 +82,36 @@ export default function HighchartsCandles({
           lineColor: palette.down,
           upLineColor: palette.up,
         },
+        ...limitLevels.map((level) => ({
+          type: "line",
+          name: level.side === "BUY" ? `LMT B x${level.count}` : `LMT S x${level.count}`,
+          data: candles.map((candle) => [candle.tick, level.price]),
+          color: level.side === "BUY" ? "#2563eb" : "#f97316",
+          dashStyle: "Dot",
+          lineWidth: 1.2,
+          marker: { enabled: false },
+          enableMouseTracking: true,
+        })),
+        ...stopLossLevels.map((level) => ({
+          type: "line",
+          name: `SL x${level.count}`,
+          data: candles.map((candle) => [candle.tick, level.price]),
+          color: "#dc2626",
+          dashStyle: "Dash",
+          lineWidth: 1.1,
+          marker: { enabled: false },
+          enableMouseTracking: true,
+        })),
+        ...takeProfitLevels.map((level) => ({
+          type: "line",
+          name: `TP x${level.count}`,
+          data: candles.map((candle) => [candle.tick, level.price]),
+          color: "#16a34a",
+          dashStyle: "Dash",
+          lineWidth: 1.1,
+          marker: { enabled: false },
+          enableMouseTracking: true,
+        })),
         ...(dealPoints.length
           ? [
               {
@@ -136,7 +169,18 @@ export default function HighchartsCandles({
           : []),
       ],
     };
-  }, [candles, closeFillPoints, dealPoints, height, openFillPoints, showRangeSlider, theme]);
+  }, [
+    candles,
+    closeFillPoints,
+    dealPoints,
+    height,
+    limitLevels,
+    openFillPoints,
+    showRangeSlider,
+    stopLossLevels,
+    takeProfitLevels,
+    theme,
+  ]);
 
   return (
     <HighchartsReact
