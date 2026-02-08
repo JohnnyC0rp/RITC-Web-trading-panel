@@ -1,3 +1,30 @@
+2026-02-07T17:39:10Z
+🔢 Version badge now shows major updates + commit minor.
+📉 Order book columns tightened to free space for multi-book and charts.
+📊 Tick progress bar now fills with gradient even at low ticks.
+🎧 Distinct sounds for market/limit placed vs filled; order toasts removed.
+🧊 Order book stays anchored without auto recenters under the cursor.
+🧾 PnL + open orders/positions tightened for the sidebar.
+🔌 Connection card wrapping fixed so Disconnect stays aligned.
+📰 News strip widened for a longer left sweep.
+==================
+2026-02-07T13:59:55Z
+🧭 Order books now lead the main stack with PnL and positions underneath.
+🖱️ Left/right click trading logic updated for limit vs market with spread ignored.
+🧾 Open positions now show long/short, entry price, and live PnL.
+🎯 Entry arrows now point by side and tint by PnL.
+⚡ Core trading polls now run at 100ms for faster updates.
+==================
+2026-02-07T13:16:35Z
+🧹 Order entry panel removed for mouse-first trading.
+📌 Open orders and positions moved near PnL with entry/size/PnL details.
+📊 PnL tracker compressed with inline realized/unrealized sparklines.
+⚡ Fast polling set to 200ms for book, orders, positions, news, case, tenders, fills, and TAS.
+📈 Ladder book expands beyond edges with stronger position highlights.
+🔔 Notifications now dock bottom-left.
+🎛️ Terminal open control anchored to the terminal panel.
+ℹ️ Shortcuts button now opens a full hotkey reference.
+==================
 2026-02-06T15:26:08Z
 📚 Multi-book layout with book/ladder trader views and tighter rows.
 🎯 Order book aligns on connect and tick 1, then stays on user scroll.
