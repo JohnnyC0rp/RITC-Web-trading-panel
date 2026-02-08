@@ -24,7 +24,7 @@ export default function HighchartsCandles({
     return {
       chart: {
         height,
-        backgroundColor: "transparent",
+        backgroundColor: palette.background,
         panning: { enabled: true, type: "x" },
         zooming: { mouseWheel: { enabled: true }, type: "x" },
       },

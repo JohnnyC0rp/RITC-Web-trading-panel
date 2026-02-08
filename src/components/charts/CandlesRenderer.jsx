@@ -22,6 +22,7 @@ export default function CandlesRenderer({
     return (
       <LightweightCandles
         candles={candles}
+        dealPoints={dealPoints}
         openFillPoints={openFillPoints}
         closeFillPoints={closeFillPoints}
         theme={theme}

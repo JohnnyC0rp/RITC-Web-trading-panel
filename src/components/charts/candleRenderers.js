@@ -1,17 +1,17 @@
 export const CANDLE_RENDERERS = [
   {
-    id: "plotly",
-    label: "Plotly",
-    description: "Full feature set with indicators and viewport memory.",
-    supportsIndicators: true,
-    supportsRangeSlider: true,
-  },
-  {
     id: "lightweight",
     label: "Lightweight Charts",
     description: "Fast canvas rendering focused on execution speed.",
     supportsIndicators: false,
     supportsRangeSlider: false,
+  },
+  {
+    id: "plotly",
+    label: "Plotly",
+    description: "Full feature set with indicators and viewport memory.",
+    supportsIndicators: true,
+    supportsRangeSlider: true,
   },
   {
     id: "echarts",

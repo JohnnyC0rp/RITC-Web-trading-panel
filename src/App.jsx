@@ -36,6 +36,7 @@ const DMA_CASES = [
 
 const CONNECTION_PREFS_KEY = "privodJohnnyConnectionPrefs";
 const UI_PREFS_KEY = "privodJohnnyUiPrefs";
+const CHART_RENDERER_COOKIE_KEY = "privodJohnnyChartRenderer";
 const UPDATE_SEEN_KEY = "privodJohnnyLastUpdateSeen";
 const TUTORIAL_SEEN_KEY = "privodJohnnyTutorialSeenV2";
 const UPDATE_SOURCE_PATH = `${import.meta.env.BASE_URL}versions.txt`;
@@ -251,20 +252,53 @@ const saveConnectionPrefs = (payload) => {
   }
 };
 
+const readCookie = (name) => {
+  if (typeof document === "undefined") return null;
+  const encoded = `${name}=`;
+  const chunks = document.cookie.split(";");
+  for (const chunk of chunks) {
+    const trimmed = chunk.trim();
+    if (!trimmed.startsWith(encoded)) continue;
+    return decodeURIComponent(trimmed.slice(encoded.length));
+  }
+  return null;
+};
+
+const writeCookie = (name, value, days = 365) => {
+  if (typeof document === "undefined") return;
+  const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  // A little breadcrumb so the chosen chart survives refreshes.
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expiresAt.toUTCString()}; path=/; SameSite=Lax`;
+};
+
 const loadUiPrefs = () => {
+  let parsed = {};
   try {
     const raw = localStorage.getItem(UI_PREFS_KEY);
-    return raw ? JSON.parse(raw) : null;
+    parsed = raw ? JSON.parse(raw) : {};
   } catch {
-    return null;
+    parsed = {};
   }
+
+  if (!parsed.chartRenderer) {
+    const cookieRenderer = readCookie(CHART_RENDERER_COOKIE_KEY);
+    if (cookieRenderer && isKnownCandleRenderer(cookieRenderer)) {
+      parsed.chartRenderer = cookieRenderer;
+    }
+  }
+
+  return Object.keys(parsed).length ? parsed : null;
 };
 
 const saveUiPrefs = (payload) => {
+  const renderer = payload?.chartRenderer;
   try {
     localStorage.setItem(UI_PREFS_KEY, JSON.stringify(payload));
   } catch {
     // UI prefs are shy sometimes; we let them hide. 🙂
+  }
+  if (renderer && isKnownCandleRenderer(renderer)) {
+    writeCookie(CHART_RENDERER_COOKIE_KEY, renderer);
   }
 };
 
@@ -2932,9 +2966,9 @@ function App() {
     [chartRenderer]
   );
 
-  const chartGridColor = theme === "dark" ? "rgba(148, 163, 184, 0.2)" : "rgba(0,0,0,0.08)";
-  const chartTextColor = theme === "dark" ? "#e2e8f0" : "#0f172a";
-  const chartPlotBg = theme === "dark" ? "#0f172a" : "#F6F2EA";
+  const chartGridColor = "rgba(15, 23, 42, 0.12)";
+  const chartTextColor = "#0f172a";
+  const chartPlotBg = "#ffffff";
 
   const chartData = candleData
     ? [
@@ -2997,7 +3031,7 @@ function App() {
     : [];
 
   const chartLayout = {
-    paper_bgcolor: "rgba(0,0,0,0)",
+    paper_bgcolor: "#ffffff",
     plot_bgcolor: chartPlotBg,
     margin: { l: 40, r: 20, t: 30, b: 30 },
     dragmode: "zoom",

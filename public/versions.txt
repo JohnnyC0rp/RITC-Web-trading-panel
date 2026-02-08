@@ -1,3 +1,7 @@
+2026-02-08T15:02:58Z
+🎛️ Chart renderer now defaults to Lightweight for first-time visitors while keeping per-user saved selection.
+🤍 Chart panels switched to white backgrounds across supported renderers and settings surfaces.
+==================
 2026-02-08T12:53:38Z
 🕯️ Candlestick renderer switcher added with Plotly, Lightweight Charts, ECharts, Highcharts, and D3 options.
 ⚙️ Chart renderer preference now persists in UI settings and switches live.

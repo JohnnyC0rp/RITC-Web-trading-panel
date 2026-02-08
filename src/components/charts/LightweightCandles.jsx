@@ -7,6 +7,7 @@ const STEP_SECONDS = 60;
 
 export default function LightweightCandles({
   candles,
+  dealPoints,
   openFillPoints,
   closeFillPoints,
   theme,
@@ -69,6 +70,19 @@ export default function LightweightCandles({
     candleSeries.setData(candleSeriesData);
 
     const markerData = [
+      ...dealPoints
+        .map((deal) => {
+          const time = tickToTime.get(deal.tick);
+          if (!time) return null;
+          return {
+            time,
+            position: "inBar",
+            color: palette.deal,
+            shape: "circle",
+            text: "DEAL",
+          };
+        })
+        .filter(Boolean),
       ...openFillPoints
         .map((fill) => {
           const time = tickToTime.get(fill.tick);
@@ -111,7 +125,7 @@ export default function LightweightCandles({
       resizeObserver.disconnect();
       chart.remove();
     };
-  }, [candles, closeFillPoints, height, openFillPoints, theme]);
+  }, [candles, closeFillPoints, dealPoints, height, openFillPoints, theme]);
 
   return <div ref={containerRef} style={{ width: "100%", height: `${height}px` }} />;
 }

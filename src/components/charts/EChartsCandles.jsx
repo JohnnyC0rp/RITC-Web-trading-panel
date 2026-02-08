@@ -24,7 +24,7 @@ export default function EChartsCandles({
 
     return {
       animation: false,
-      backgroundColor: "transparent",
+      backgroundColor: palette.background,
       tooltip: {
         trigger: "axis",
       },
@@ -141,7 +141,7 @@ export default function EChartsCandles({
   return (
     <ReactECharts
       option={option}
-      style={{ width: "100%", height: `${height}px` }}
+      style={{ width: "100%", height: `${height}px`, background: "#ffffff" }}
       notMerge
       lazyUpdate
       opts={{ renderer: "canvas" }}

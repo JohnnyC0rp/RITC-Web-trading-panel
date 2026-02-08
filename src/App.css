@@ -949,9 +949,10 @@ button.full {
   flex-wrap: wrap;
   gap: 12px;
   padding: 10px 12px;
-  background: rgba(15, 23, 42, 0.04);
+  background: #ffffff;
   border-radius: 12px;
   align-items: center;
+  border: 1px solid rgba(15, 23, 42, 0.08);
 }
 
 .chart-control {
@@ -1367,7 +1368,7 @@ button.full {
   padding: 10px;
   border-radius: 12px;
   border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(15, 23, 42, 0.03);
+  background: #ffffff;
 }
 
 .api-lab {
@@ -2012,11 +2013,11 @@ button.full {
 }
 
 .app[data-theme="dark"] .chart-settings {
-  background: rgba(148, 163, 184, 0.08);
+  background: #ffffff;
 }
 
 .app[data-theme="dark"] .chart-control {
-  color: #94a3b8;
+  color: #475569;
 }
 
 .app[data-theme="dark"] .segmented {
