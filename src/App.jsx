@@ -31,6 +31,7 @@ const DMA_CASES = [
 const CONNECTION_PREFS_KEY = "privodJohnnyConnectionPrefs";
 const UI_PREFS_KEY = "privodJohnnyUiPrefs";
 const UPDATE_SEEN_KEY = "privodJohnnyLastUpdateSeen";
+const TUTORIAL_SEEN_KEY = "privodJohnnyTutorialSeen";
 const UPDATE_SOURCE_PATH = `${import.meta.env.BASE_URL}versions.txt`;
 const UPDATE_SEPARATOR = "==================";
 
@@ -817,6 +818,7 @@ function App() {
   const [showUpdatePrompt, setShowUpdatePrompt] = useState(false);
   const [updatePayload, setUpdatePayload] = useState(null);
   const [versionMajor, setVersionMajor] = useState(0);
+  const [showTutorial, setShowTutorial] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [lastBookUpdateAt, setLastBookUpdateAt] = useState(0);
   const [lastConnectAt, setLastConnectAt] = useState(0);
@@ -945,6 +947,17 @@ function App() {
       }
     }
     setPrefsHydrated(true);
+    if (!stored) {
+      try {
+        const seen = localStorage.getItem(TUTORIAL_SEEN_KEY);
+        if (!seen) {
+          setShowTutorial(true);
+        }
+      } catch {
+        // If storage is blocked, we assume the tutorial is helpful once. 🙂
+        setShowTutorial(true);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -3078,6 +3091,19 @@ function App() {
     };
   }, [terminalLines.length, filteredTerminalLines.length, terminalUnlocked]);
 
+  useEffect(() => {
+    if (!terminalUnlocked) return;
+    if (showTutorial) return;
+    try {
+      const seen = localStorage.getItem(TUTORIAL_SEEN_KEY);
+      if (!seen) {
+        setShowTutorial(true);
+      }
+    } catch {
+      setShowTutorial(true);
+    }
+  }, [showTutorial, terminalUnlocked]);
+
   const requestMetricRows = useMemo(() => {
     return Object.entries(requestMetrics)
       .map(([key, value]) => ({ key, ...value }))
@@ -3098,6 +3124,15 @@ function App() {
     { keys: "A", action: "Add another order book panel." },
     { keys: "Esc", action: "Close open pop-ups." },
   ];
+
+  const dismissTutorial = useCallback(() => {
+    setShowTutorial(false);
+    try {
+      localStorage.setItem(TUTORIAL_SEEN_KEY, "true");
+    } catch {
+      // If storage is blocked, we still let them continue.
+    }
+  }, []);
 
   const formatMs = useCallback((value) => {
     if (!Number.isFinite(value)) return "—";
@@ -4381,6 +4416,44 @@ function App() {
                   <span className="shortcut-action">{item.action}</span>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTutorial && (
+        <div className="modal">
+          <div className="modal-card tutorial-card">
+            <div className="shortcuts-header">
+              <h3>Welcome Tutorial</h3>
+              <button type="button" className="ghost" onClick={dismissTutorial}>
+                Close
+              </button>
+            </div>
+            <div className="tutorial-block">
+              <h4>Order Book Views</h4>
+              <div className="muted">Book Trader shows trader + volume columns. Ladder Trader is the compact bid/ask ladder.</div>
+            </div>
+            <div className="tutorial-block">
+              <h4>Mouse Trading</h4>
+              <div className="muted">Left click places a BUY limit in the bid zone. Right click places a SELL limit in the ask zone.</div>
+              <div className="muted">If you click across the spread (buy above or sell below), it fires a market order.</div>
+            </div>
+            <div className="tutorial-block">
+              <h4>Shortcuts</h4>
+              <div className="tutorial-shortcuts">
+                {shortcuts.map((item) => (
+                  <div key={`tutorial-${item.keys}`} className="shortcuts-row">
+                    <span className="shortcut-key">{item.keys}</span>
+                    <span className="shortcut-action">{item.action}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="button-row">
+              <button type="button" className="primary" onClick={dismissTutorial}>
+                Got it
+              </button>
             </div>
           </div>
         </div>

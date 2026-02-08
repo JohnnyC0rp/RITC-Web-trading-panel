@@ -1752,6 +1752,10 @@ button.full {
   max-width: 520px;
 }
 
+.modal-card.tutorial-card {
+  max-width: 560px;
+}
+
 .shortcuts-header {
   display: flex;
   align-items: center;
@@ -1773,6 +1777,25 @@ button.full {
   border-radius: 12px;
   background: rgba(15, 23, 42, 0.05);
   align-items: center;
+}
+
+.tutorial-block {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.tutorial-block h4 {
+  margin: 0;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #475569;
+}
+
+.tutorial-shortcuts {
+  display: grid;
+  gap: 6px;
 }
 
 .shortcut-key {
@@ -1926,6 +1949,10 @@ button.full {
 
 .app[data-theme="dark"] .shortcut-key {
   color: #e2e8f0;
+}
+
+.app[data-theme="dark"] .tutorial-block h4 {
+  color: #94a3b8;
 }
 
 .app[data-theme="dark"] .executions-row {
