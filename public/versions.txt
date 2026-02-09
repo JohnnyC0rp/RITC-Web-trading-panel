@@ -1,3 +1,9 @@
+2026-02-09T14:24:49Z
+🧠 Chart scaling controls were overhauled with global auto-scale toggle and persisted chart preferences in local storage plus cookies.
+🔧 Manual Y-rescaling now works across Plotly, Lightweight, ECharts, Highcharts, and D3 without snap-back during live updates.
+🎯 Lightweight chart lifecycle was stabilized to prevent re-creation on ticks and preserve user zoom/scale interaction.
+🛡️ TP/SL overlays now render only when a ticker has an active open position, removing inactive risk lines from charts and books.
+==================
 2026-02-08T17:59:17Z
 🧱 Graph workspace mode and endpoint 429 backoff reduced rate-limit failures and stabilized layout.
 ==================
