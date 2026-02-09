@@ -1,98 +1,22 @@
-2026-02-09T09:12:28Z
-🧯 Default TP/SL auto-apply now starts disabled (can be enabled per session).
-==================
-2026-02-09T06:42:57Z
-🧲 Auto order-book recentering is restored on connection and tick-1.
-==================
-2026-02-09T06:40:10Z
-🧭 Auto order-book recenter on connect/tick-1 is now disabled so manual scroll stays put.
-🧩 Chart settings now render below the plot area for a cleaner visual flow.
-==================
-2026-02-08T19:05:56Z
-🧱 Order Book View layout alignment was corrected to remove the large empty gap above ladder rows.
-🖱️ Chart click handlers now report a clear prompt when mouse trading is disabled instead of silently doing nothing.
-🎯 Lightweight and Plotly charts now show a crosshair cursor when chart mouse trading is enabled.
+2026-02-09T12:40:39Z
+📊 Multi-book mode now renders a separate candles panel for each open book ticker.
+🤝 M&A charts now show deal-value and case start-price reference lines on both target and acquirer charts.
+🧭 M&A workspace controls were compressed into a thin horizontal toolbar to prioritize chart space.
 ==================
 2026-02-08T17:59:17Z
-🧯 Lightweight chart marker ordering is now enforced to prevent white-screen crashes.
-🧭 Display mode is now split into Order Book View and Graph View, with M&A defaulting to Graph View.
-🚦 Endpoint 429 cooldown handling and slower graph-mode polling now reduce proxy rate-limit spam.
-🎨 M&A chart card spacing and sizing were polished for cleaner pair-side graph layouts.
+🧱 Graph workspace mode and endpoint 429 backoff reduced rate-limit failures and stabilized layout.
 ==================
 2026-02-08T15:47:01Z
-🤝 Merger-arbitrage pair workspace added with a default two-chart pair view, deal descriptions, and add/remove pair cards.
-🎯 Deal target levels now render on target-company charts using case terms (cash, stock, and mixed structures).
-🧭 Each pair chart now has a checkbox to overlay its paired-company live price as a reference line.
-🧱 Custom reference-level overlays are now supported across all candle renderers (Lightweight, Plotly, ECharts, Highcharts, D3).
+🤝 Merger-arbitrage pair workspace added with pair cards, descriptions, and add/remove controls.
+🧭 Pair charts gained optional peer-price reference overlays.
 ==================
 2026-02-08T15:20:28Z
-🕯️ Order book display modes now support Books + Candles, Books only, and Candles only.
-🖱️ Chart mouse trading added with LMB/RMB quick-order logic and default TP/SL presets.
-🎯 Open-order limit, TP, and SL levels now render on charts and inside order-book rows.
-🧭 Multi-book layout no longer embeds candles inside the primary panel, plus C hotkey centering hints.
-==================
-2026-02-08T15:02:58Z
-🎛️ Chart renderer now defaults to Lightweight for first-time visitors while keeping per-user saved selection.
-🤍 Chart panels switched to white backgrounds across supported renderers and settings surfaces.
+🕯️ Order Book View and Graph View split with chart mouse trading and default TP/SL support.
+🎯 Limit, stop-loss, and take-profit levels render on charts and order-book rows.
 ==================
 2026-02-08T12:53:38Z
-🕯️ Candlestick renderer switcher added with Plotly, Lightweight Charts, ECharts, Highcharts, and D3 options.
-⚙️ Chart renderer preference now persists in UI settings and switches live.
-==================
-2026-02-08T11:54:13Z
-🧾 Terminal feed behavior updated (auto-follow + capped history).
-📊 PnL tracker cadence slowed for readability.
-🧭 Multi-book view keeps candles with the primary book.
-📰 News feed clear-all now persists without respawning.
-==================
-2026-02-07T17:39:10Z
-🔢 Version badge now shows major updates + commit minor.
-📉 Order book columns tightened to free space for multi-book and charts.
-📊 Tick progress bar now fills with gradient even at low ticks.
-🎧 Distinct sounds for market/limit placed vs filled; order toasts removed.
-🧊 Order book stays anchored without auto recenters under the cursor.
-🧾 PnL + open orders/positions tightened for the sidebar.
-🔌 Connection card wrapping fixed so Disconnect stays aligned.
-📰 News strip widened for a longer left sweep.
-==================
-2026-02-07T13:59:55Z
-🧭 Order books now lead the main stack with PnL and positions underneath.
-🖱️ Left/right click trading logic updated for limit vs market with spread ignored.
-🧾 Open positions now show long/short, entry price, and live PnL.
-🎯 Entry arrows now point by side and tint by PnL.
-⚡ Core trading polls now run at 100ms for faster updates.
-==================
-2026-02-07T13:16:35Z
-🧹 Order entry panel removed for mouse-first trading.
-📌 Open orders and positions moved near PnL with entry/size/PnL details.
-📊 PnL tracker compressed with inline realized/unrealized sparklines.
-⚡ Fast polling set to 200ms for book, orders, positions, news, case, tenders, fills, and TAS.
-📈 Ladder book expands beyond edges with stronger position highlights.
-🔔 Notifications now dock bottom-left.
-🎛️ Terminal open control anchored to the terminal panel.
-ℹ️ Shortcuts button now opens a full hotkey reference.
-==================
-2026-02-06T15:26:08Z
-📚 Multi-book layout with book/ladder trader views and tighter rows.
-🎯 Order book aligns on connect and tick 1, then stays on user scroll.
-🟢 Entry price highlights with direction arrows and side-only PnL shading.
-🧾 Terminal metrics table stabilized with fast-poll sparklines.
-📰 News toasts now horizontal with close buttons and timers.
-==================
-2026-02-06T11:52:02Z
-🔌 Configurable local proxy URL for Remote connections.
-📚 Order book polling syncs with open orders with adaptive backoff and faster cadence.
-🧭 Order book keeps scroll position and recenters only on connect or case switch.
-📊 Trader/portfolio summary added, plus faster TAS trade polling.
-📱 Mobile layout spacing and stacking improved.
-==================
-2026-02-03T18:40:06Z
-🎨 Small redesign and layout polish across the UI.
-🛠️ Bug fixes and general performance improvements.
-📈 20 new chart indicators with detailed descriptions.
-🌗 Dark + light theme support with a toggle.
+🎛️ Renderer switcher added with Plotly, Lightweight, ECharts, Highcharts, and D3 candle engines.
 ==================
 2026-02-03T00:00:00Z
-🧭 Case selection option is now available.
-🍪 Connection credentials are saved locally in cookies.
-🧷 Proxy respects the base URL, including custom user base URLs.
+🧭 Case selection and local credential persistence were introduced for connection setup.
+==================
