@@ -1182,6 +1182,8 @@ function App() {
         setBracketDefaults((prev) => ({
           ...prev,
           ...stored.bracketDefaults,
+          // Default to disabled on load; SL/TP can be re-enabled for the session when needed.
+          enabled: false,
         }));
       }
       if (stored.quickOrderQuantity != null) {

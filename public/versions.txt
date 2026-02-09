@@ -1,3 +1,6 @@
+2026-02-09T09:12:28Z
+🧯 Default TP/SL auto-apply now starts disabled (can be enabled per session).
+==================
 2026-02-09T06:42:57Z
 🧲 Auto order-book recentering is restored on connection and tick-1.
 ==================
