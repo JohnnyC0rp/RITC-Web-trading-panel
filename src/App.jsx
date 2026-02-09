@@ -5469,7 +5469,7 @@ function App() {
             <div className="tutorial-block">
               <h4>Chart Renderers</h4>
               <div className="muted">
-                Try different chart renderers in Chart Settings; each engine has different speed and interaction behavior.
+                Try different chart renderers in Chart Settings; each engine has different interaction and visual behavior.
               </div>
             </div>
             <div className="tutorial-block">
