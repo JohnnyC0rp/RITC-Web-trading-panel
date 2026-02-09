@@ -1,57 +1,23 @@
-2026-02-08T11:54:13Z
-🧾 Terminal feed behavior updated (auto-follow + capped history).
-📊 PnL tracker cadence slowed for readability.
-🧭 Multi-book view keeps candles with the primary book.
-📰 News feed clear-all now persists without respawning.
+2026-02-09T14:24:49Z
+🧠 Chart scaling controls were overhauled with global auto-scale toggle and persisted chart preferences in local storage plus cookies.
+🔧 Manual Y-rescaling now works across Plotly, Lightweight, ECharts, Highcharts, and D3 without snap-back during live updates.
+🎯 Lightweight chart lifecycle was stabilized to prevent re-creation on ticks and preserve user zoom/scale interaction.
+🛡️ TP/SL overlays now render only when a ticker has an active open position, removing inactive risk lines from charts and books.
 ==================
-2026-02-07T17:39:10Z
-🔢 Version badge now shows major updates + commit minor.
-📉 Order book columns tightened to free space for multi-book and charts.
-📊 Tick progress bar now fills with gradient even at low ticks.
-🎧 Distinct sounds for market/limit placed vs filled; order toasts removed.
-🧊 Order book stays anchored without auto recenters under the cursor.
-🧾 PnL + open orders/positions tightened for the sidebar.
-🔌 Connection card wrapping fixed so Disconnect stays aligned.
-📰 News strip widened for a longer left sweep.
+2026-02-08T17:59:17Z
+🧱 Graph workspace mode and endpoint 429 backoff reduced rate-limit failures and stabilized layout.
 ==================
-2026-02-07T13:59:55Z
-🧭 Order books now lead the main stack with PnL and positions underneath.
-🖱️ Left/right click trading logic updated for limit vs market with spread ignored.
-🧾 Open positions now show long/short, entry price, and live PnL.
-🎯 Entry arrows now point by side and tint by PnL.
-⚡ Core trading polls now run at 100ms for faster updates.
+2026-02-08T15:47:01Z
+🤝 Merger-arbitrage pair workspace added with pair cards, descriptions, and add/remove controls.
+🧭 Pair charts gained optional peer-price reference overlays.
 ==================
-2026-02-07T13:16:35Z
-🧹 Order entry panel removed for mouse-first trading.
-📌 Open orders and positions moved near PnL with entry/size/PnL details.
-📊 PnL tracker compressed with inline realized/unrealized sparklines.
-⚡ Fast polling set to 200ms for book, orders, positions, news, case, tenders, fills, and TAS.
-📈 Ladder book expands beyond edges with stronger position highlights.
-🔔 Notifications now dock bottom-left.
-🎛️ Terminal open control anchored to the terminal panel.
-ℹ️ Shortcuts button now opens a full hotkey reference.
+2026-02-08T15:20:28Z
+🕯️ Order Book View and Graph View split with chart mouse trading and default TP/SL support.
+🎯 Limit, stop-loss, and take-profit levels render on charts and order-book rows.
 ==================
-2026-02-06T15:26:08Z
-📚 Multi-book layout with book/ladder trader views and tighter rows.
-🎯 Order book aligns on connect and tick 1, then stays on user scroll.
-🟢 Entry price highlights with direction arrows and side-only PnL shading.
-🧾 Terminal metrics table stabilized with fast-poll sparklines.
-📰 News toasts now horizontal with close buttons and timers.
-==================
-2026-02-06T11:52:02Z
-🔌 Configurable local proxy URL for Remote connections.
-📚 Order book polling syncs with open orders with adaptive backoff and faster cadence.
-🧭 Order book keeps scroll position and recenters only on connect or case switch.
-📊 Trader/portfolio summary added, plus faster TAS trade polling.
-📱 Mobile layout spacing and stacking improved.
-==================
-2026-02-03T18:40:06Z
-🎨 Small redesign and layout polish across the UI.
-🛠️ Bug fixes and general performance improvements.
-📈 20 new chart indicators with detailed descriptions.
-🌗 Dark + light theme support with a toggle.
+2026-02-08T12:53:38Z
+🎛️ Renderer switcher added with Plotly, Lightweight, ECharts, Highcharts, and D3 candle engines.
 ==================
 2026-02-03T00:00:00Z
-🧭 Case selection option is now available.
-🍪 Connection credentials are saved locally in cookies.
-🧷 Proxy respects the base URL, including custom user base URLs.
+🧭 Case selection and local credential persistence were introduced for connection setup.
+==================
