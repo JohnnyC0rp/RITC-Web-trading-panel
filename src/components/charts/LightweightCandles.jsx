@@ -76,6 +76,7 @@ export default function LightweightCandles({
     candleSeries.setData(candleSeriesData);
 
     const markerData = [
+      // Deal markers stay small to avoid cluttering the candles (they are shy).
       ...dealPoints
         .map((deal) => {
           const time = tickToTime.get(deal.tick);
@@ -85,7 +86,7 @@ export default function LightweightCandles({
             position: "inBar",
             color: palette.deal,
             shape: "circle",
-            text: "DEAL",
+            size: 3,
           };
         })
         .filter(Boolean),

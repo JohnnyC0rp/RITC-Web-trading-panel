@@ -135,7 +135,7 @@ export default function HighchartsCandles({
                 name: "Deals",
                 data: dealPoints.map(toPoint),
                 color: palette.deal,
-                marker: { radius: 2.8 },
+                marker: { radius: 2 },
               },
             ]
           : []),

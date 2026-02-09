@@ -3415,7 +3415,7 @@ function App() {
       name: "Deals",
       x: dealPoints.map((trade) => trade.tick),
       y: dealPoints.map((trade) => trade.price),
-      marker: { size: 6, color: "rgba(148, 163, 184, 0.55)" },
+      marker: { size: 4, color: "rgba(148, 163, 184, 0.55)" },
     };
   }, [dealPoints]);
 
@@ -3956,7 +3956,7 @@ function App() {
                 name: "Deals",
                 x: model.dealPoints.map((point) => point.tick),
                 y: model.dealPoints.map((point) => point.price),
-                marker: { size: 6, color: "rgba(148, 163, 184, 0.55)" },
+                marker: { size: 4, color: "rgba(148, 163, 184, 0.55)" },
               },
             ]
           : []),

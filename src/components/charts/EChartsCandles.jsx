@@ -126,7 +126,7 @@ export default function EChartsCandles({
               {
                 name: "Deals",
                 type: "scatter",
-                symbolSize: 6,
+                symbolSize: 4,
                 itemStyle: { color: palette.deal },
                 data: dealPoints.map(toScatterPoint),
               },

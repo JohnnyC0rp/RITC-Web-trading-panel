@@ -194,7 +194,7 @@ export default function D3Candles({
       .attr("class", "deal")
       .attr("cx", (point) => x(point.tick) + x.bandwidth() / 2)
       .attr("cy", (point) => y(point.price))
-      .attr("r", 2.8)
+      .attr("r", 2)
       .attr("fill", palette.deal);
 
     const triangle = d3.symbol().type(d3.symbolTriangle).size(62);
