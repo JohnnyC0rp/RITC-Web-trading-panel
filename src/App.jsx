@@ -5451,9 +5451,6 @@ function App() {
           <div className="modal-card tutorial-card">
             <div className="shortcuts-header">
               <h3>Welcome Tutorial</h3>
-              <button type="button" className="ghost" onClick={dismissTutorial}>
-                Close
-              </button>
             </div>
             <div className="tutorial-block">
               <h4>Order Book Views</h4>
