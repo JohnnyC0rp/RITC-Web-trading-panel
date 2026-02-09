@@ -636,6 +636,7 @@ const buildOrderLevelsForTicker = ({
   orders,
   ticker,
   decimals,
+  includeRiskLevels = true,
 }) => {
   if (!ticker) {
     return { limit: [], stopLoss: [], takeProfit: [] };
@@ -658,13 +659,13 @@ const buildOrderLevelsForTicker = ({
       existing.count += 1;
       limitByKey.set(key, existing);
     }
-    if (stopLoss != null) {
+    if (includeRiskLevels && stopLoss != null) {
       const key = Number(stopLoss).toFixed(decimals);
       const existing = stopByKey.get(key) || { price: Number(key), count: 0 };
       existing.count += 1;
       stopByKey.set(key, existing);
     }
-    if (takeProfit != null) {
+    if (includeRiskLevels && takeProfit != null) {
       const key = Number(takeProfit).toFixed(decimals);
       const existing = takeByKey.get(key) || { price: Number(key), count: 0 };
       existing.count += 1;
@@ -2896,11 +2897,24 @@ function App() {
   const isCaseStopped =
     connectionStatus === "Connected" && caseInfo?.status === "STOPPED";
 
+  const hasActivePositionForTicker = useCallback(
+    (ticker) => {
+      if (!ticker || isCaseStopped) return false;
+      const fromFills = Number(positionMap.get(ticker)?.qty);
+      const sec = securityByTicker.get(ticker) || {};
+      const fallback = Number(sec.position ?? sec.pos ?? sec.qty ?? 0);
+      const qty = Number.isFinite(fromFills) ? fromFills : fallback;
+      return Number.isFinite(qty) && qty !== 0;
+    },
+    [isCaseStopped, positionMap, securityByTicker]
+  );
+
   const ordersByTickerPrice = useMemo(() => {
     const map = new Map();
     orders.forEach((order) => {
       const ticker = order?.ticker;
       if (!ticker || order?.price == null) return;
+      const includeRiskLevels = hasActivePositionForTicker(ticker);
       const decimals = decimalsByTicker.get(ticker) ?? 2;
       const key = Number(order.price).toFixed(decimals);
       const side = String(order.action || "").toUpperCase();
@@ -2922,25 +2936,34 @@ function App() {
       if (side === "BUY") {
         entry.buyQty += qty;
         entry.buyCount += 1;
-        if (stopLoss != null) entry.buyStops.add(Number(stopLoss).toFixed(decimals));
-        if (takeProfit != null) entry.buyTargets.add(Number(takeProfit).toFixed(decimals));
+        if (includeRiskLevels && stopLoss != null) {
+          entry.buyStops.add(Number(stopLoss).toFixed(decimals));
+        }
+        if (includeRiskLevels && takeProfit != null) {
+          entry.buyTargets.add(Number(takeProfit).toFixed(decimals));
+        }
       } else if (side === "SELL") {
         entry.sellQty += qty;
         entry.sellCount += 1;
-        if (stopLoss != null) entry.sellStops.add(Number(stopLoss).toFixed(decimals));
-        if (takeProfit != null) entry.sellTargets.add(Number(takeProfit).toFixed(decimals));
+        if (includeRiskLevels && stopLoss != null) {
+          entry.sellStops.add(Number(stopLoss).toFixed(decimals));
+        }
+        if (includeRiskLevels && takeProfit != null) {
+          entry.sellTargets.add(Number(takeProfit).toFixed(decimals));
+        }
       }
       tickerMap.set(key, entry);
       map.set(ticker, tickerMap);
     });
     return map;
-  }, [decimalsByTicker, orders]);
+  }, [decimalsByTicker, hasActivePositionForTicker, orders]);
 
   const riskLevelsByTicker = useMemo(() => {
     const map = new Map();
     orders.forEach((order) => {
       const ticker = order?.ticker;
       if (!ticker) return;
+      if (!hasActivePositionForTicker(ticker)) return;
       const decimals = decimalsByTicker.get(ticker) ?? 2;
       const entry = map.get(ticker) || { stopLoss: new Set(), takeProfit: new Set() };
       const stopLoss = getOrderStopLoss(order);
@@ -2950,7 +2973,7 @@ function App() {
       map.set(ticker, entry);
     });
     return map;
-  }, [decimalsByTicker, orders]);
+  }, [decimalsByTicker, hasActivePositionForTicker, orders]);
 
   const baseRowCount = 80;
 
@@ -3544,8 +3567,9 @@ function App() {
       orders,
       ticker: selectedTicker,
       decimals,
+      includeRiskLevels: hasActivePositionForTicker(selectedTicker),
     });
-  }, [decimalsByTicker, orders, selectedTicker]);
+  }, [decimalsByTicker, hasActivePositionForTicker, orders, selectedTicker]);
 
   const getTickerLivePrice = useCallback(
     (ticker) => {
@@ -3856,6 +3880,7 @@ function App() {
         orders,
         ticker,
         decimals,
+        includeRiskLevels: hasActivePositionForTicker(ticker),
       });
       next.set(ticker, {
         candles: tickerCandles,
@@ -3874,6 +3899,7 @@ function App() {
     isMergerArbCase,
     mnaHistoryByTicker,
     orders,
+    hasActivePositionForTicker,
     selectedTicker,
     tasTrades,
   ]);
@@ -4339,6 +4365,7 @@ function App() {
         orders,
         ticker,
         decimals,
+        includeRiskLevels: hasActivePositionForTicker(ticker),
       });
       return {
         candles: tickerCandles,
@@ -4348,7 +4375,7 @@ function App() {
         orderLevels: levels,
       };
     },
-    [decimalsByTicker, fills, orders, tasTrades]
+    [decimalsByTicker, fills, hasActivePositionForTicker, orders, tasTrades]
   );
 
   const renderChartSettings = () => (
