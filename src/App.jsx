@@ -49,6 +49,9 @@ const DMA_CASES = [
 const CONNECTION_PREFS_KEY = "privodJohnnyConnectionPrefs";
 const UI_PREFS_KEY = "privodJohnnyUiPrefs";
 const CHART_RENDERER_COOKIE_KEY = "privodJohnnyChartRenderer";
+const CHART_AUTOSCALE_COOKIE_KEY = "privodJohnnyChartAutoScale";
+const CHART_MOUSE_TRADING_COOKIE_KEY = "privodJohnnyChartMouseTrading";
+const CHART_RANGE_SLIDER_COOKIE_KEY = "privodJohnnyChartRangeSlider";
 const UPDATE_SEEN_KEY = "privodJohnnyLastUpdateSeen";
 const TUTORIAL_SEEN_KEY = "privodJohnnyTutorialSeenV2";
 const UPDATE_SOURCE_PATH = `${import.meta.env.BASE_URL}versions.txt`;
@@ -296,6 +299,19 @@ const writeCookie = (name, value, days = 365) => {
   document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expiresAt.toUTCString()}; path=/; SameSite=Lax`;
 };
 
+const readBooleanCookie = (name) => {
+  const raw = readCookie(name);
+  if (raw == null) return null;
+  if (raw === "1" || raw === "true") return true;
+  if (raw === "0" || raw === "false") return false;
+  return null;
+};
+
+const writeBooleanCookie = (name, value) => {
+  if (typeof value !== "boolean") return;
+  writeCookie(name, value ? "1" : "0");
+};
+
 const loadUiPrefs = () => {
   let parsed = {};
   try {
@@ -312,11 +328,27 @@ const loadUiPrefs = () => {
     }
   }
 
+  if (typeof parsed.autoScaleCharts !== "boolean") {
+    const cookieAutoScale = readBooleanCookie(CHART_AUTOSCALE_COOKIE_KEY);
+    if (typeof cookieAutoScale === "boolean") parsed.autoScaleCharts = cookieAutoScale;
+  }
+  if (typeof parsed.chartMouseTrading !== "boolean") {
+    const cookieMouseTrading = readBooleanCookie(CHART_MOUSE_TRADING_COOKIE_KEY);
+    if (typeof cookieMouseTrading === "boolean") parsed.chartMouseTrading = cookieMouseTrading;
+  }
+  if (typeof parsed.showRangeSlider !== "boolean") {
+    const cookieRangeSlider = readBooleanCookie(CHART_RANGE_SLIDER_COOKIE_KEY);
+    if (typeof cookieRangeSlider === "boolean") parsed.showRangeSlider = cookieRangeSlider;
+  }
+
   return Object.keys(parsed).length ? parsed : null;
 };
 
 const saveUiPrefs = (payload) => {
   const renderer = payload?.chartRenderer;
+  const autoScaleCharts = payload?.autoScaleCharts;
+  const chartMouseTrading = payload?.chartMouseTrading;
+  const showRangeSlider = payload?.showRangeSlider;
   try {
     localStorage.setItem(UI_PREFS_KEY, JSON.stringify(payload));
   } catch {
@@ -325,6 +357,9 @@ const saveUiPrefs = (payload) => {
   if (renderer && isKnownCandleRenderer(renderer)) {
     writeCookie(CHART_RENDERER_COOKIE_KEY, renderer);
   }
+  writeBooleanCookie(CHART_AUTOSCALE_COOKIE_KEY, autoScaleCharts);
+  writeBooleanCookie(CHART_MOUSE_TRADING_COOKIE_KEY, chartMouseTrading);
+  writeBooleanCookie(CHART_RANGE_SLIDER_COOKIE_KEY, showRangeSlider);
 };
 
 const buildUrl = (baseUrl, path, params = {}) => {
@@ -1067,6 +1102,7 @@ function App() {
   const [chartRenderer, setChartRenderer] = useState(DEFAULT_CANDLE_RENDERER);
   const [showChartSettings, setShowChartSettings] = useState(false);
   const [chartMouseTrading, setChartMouseTrading] = useState(true);
+  const [autoScaleCharts, setAutoScaleCharts] = useState(false);
   const [showRangeSlider, setShowRangeSlider] = useState(false);
   const [indicatorState, setIndicatorState] = useState(INDICATOR_DEFAULTS);
   const [indicatorInfo, setIndicatorInfo] = useState(null);
@@ -1079,6 +1115,7 @@ function App() {
   const [mnaPairIds, setMnaPairIds] = useState([...MNA_DEFAULT_PAIR_IDS]);
   const [mnaPeerPriceVisibility, setMnaPeerPriceVisibility] = useState({});
   const [mnaHistoryByTicker, setMnaHistoryByTicker] = useState({});
+  const plotlyYRangeLocksRef = useRef(new Map());
 
   const [orderDraft, setOrderDraft] = useState({
     ticker: "",
@@ -1166,6 +1203,9 @@ function App() {
       if (typeof stored.chartMouseTrading === "boolean") {
         setChartMouseTrading(stored.chartMouseTrading);
       }
+      if (typeof stored.autoScaleCharts === "boolean") {
+        setAutoScaleCharts(stored.autoScaleCharts);
+      }
       if (typeof stored.showRangeSlider === "boolean") setShowRangeSlider(stored.showRangeSlider);
       if (typeof stored.showChartSettings === "boolean") setShowChartSettings(stored.showChartSettings);
       if (stored.bookView) setBookView(stored.bookView);
@@ -1246,6 +1286,7 @@ function App() {
       theme,
       chartRenderer,
       chartMouseTrading,
+      autoScaleCharts,
       showRangeSlider,
       showChartSettings,
       bookView,
@@ -1258,6 +1299,7 @@ function App() {
       mnaPeerPriceVisibility,
     });
   }, [
+    autoScaleCharts,
     bookView,
     bracketDefaults,
     chartRenderer,
@@ -3663,6 +3705,13 @@ function App() {
     });
   }, []);
 
+  useEffect(() => {
+    if (autoScaleCharts) {
+      plotlyYRangeLocksRef.current.clear();
+      setChartView({});
+    }
+  }, [autoScaleCharts]);
+
   const handleChartTradeIntentForTicker = async (ticker, button, clickedPrice) => {
     if (!config || !ticker || !Number.isFinite(clickedPrice)) return;
     if (!chartMouseTrading) {
@@ -3713,6 +3762,40 @@ function App() {
         },
       }));
   }, []);
+
+  const computeYRange = useCallback((candlesInput = [], levelGroups = [], pointGroups = []) => {
+    const prices = [
+      ...candlesInput.flatMap((candle) => [candle.low, candle.high, candle.open, candle.close]),
+      ...levelGroups.flatMap((levels) => levels.map((level) => level.price)),
+      ...pointGroups.flatMap((points) => points.map((point) => point.price)),
+    ]
+      .map((value) => Number(value))
+      .filter(Number.isFinite);
+    if (!prices.length) return null;
+    const minValue = Math.min(...prices);
+    const maxValue = Math.max(...prices);
+    const spread = maxValue - minValue;
+    const padding = spread > 0 ? spread * 0.08 : Math.max(Math.abs(maxValue) * 0.02, 1);
+    return [minValue - padding, maxValue + padding];
+  }, []);
+
+  const resolvePlotlyYAxisConfig = useCallback(
+    (scaleKey, candlesInput = [], levelGroups = [], pointGroups = []) => {
+      if (autoScaleCharts) {
+        plotlyYRangeLocksRef.current.delete(scaleKey);
+        return { autorange: true };
+      }
+      const lockedRange = plotlyYRangeLocksRef.current.get(scaleKey);
+      if (lockedRange) {
+        return { autorange: false, range: lockedRange };
+      }
+      const nextRange = computeYRange(candlesInput, levelGroups, pointGroups);
+      if (!nextRange) return { autorange: false };
+      plotlyYRangeLocksRef.current.set(scaleKey, nextRange);
+      return { autorange: false, range: nextRange };
+    },
+    [autoScaleCharts, computeYRange]
+  );
 
   const mnaChartModelsByTicker = useMemo(() => {
     if (!isMergerArbCase) return new Map();
@@ -3834,6 +3917,12 @@ function App() {
           style: "dash",
         })),
       ];
+      const yAxisScaleConfig = resolvePlotlyYAxisConfig(
+        `mna:${pair.id}:${ticker}`,
+        candlesForTicker,
+        [orderLines, referenceLevels],
+        [model.dealPoints, model.openFillPoints, model.closeFillPoints]
+      );
 
       const plotlyDataForPair = [
         {
@@ -3921,6 +4010,7 @@ function App() {
           title: "Price",
           gridcolor: chartGridColor,
           tickfont: { size: 10, color: chartTextColor },
+          ...yAxisScaleConfig,
         },
         uirevision: `${pair.id}-${ticker}`,
       };
@@ -3942,6 +4032,8 @@ function App() {
           plotlyData={plotlyDataForPair}
           plotlyLayout={plotlyLayoutForPair}
           plotlyConfig={chartConfig}
+          autoScale={autoScaleCharts}
+          scaleLockKey={`mna:${pair.id}:${ticker}`}
           onChartTradeIntent={(button, price) =>
             handleChartTradeIntentForTicker(ticker, button, price)
           }
@@ -4257,6 +4349,14 @@ function App() {
       <label className="checkbox-row">
         <input
           type="checkbox"
+          checked={autoScaleCharts}
+          onChange={(event) => setAutoScaleCharts(event.target.checked)}
+        />
+        Auto scale charts
+      </label>
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
           checked={showRangeSlider}
           disabled={!chartRendererMeta.supportsRangeSlider}
           onChange={(event) => setShowRangeSlider(event.target.checked)}
@@ -4458,6 +4558,12 @@ function App() {
             style: "dash",
           })),
         ];
+        const yAxisScaleConfig = resolvePlotlyYAxisConfig(
+          `panel:${activeTicker || "none"}`,
+          model.candles,
+          [orderLines, referenceLevels],
+          [model.dealPoints, model.openFillPoints, model.closeFillPoints]
+        );
 
         const panelPlotlyData = [
           {
@@ -4546,6 +4652,7 @@ function App() {
             title: "Price",
             gridcolor: chartGridColor,
             tickfont: { size: 10, color: chartTextColor },
+            ...yAxisScaleConfig,
           },
           ...(usingPrimaryTicker && showOscillatorAxis
             ? {
@@ -4578,6 +4685,8 @@ function App() {
             plotlyData={panelPlotlyData}
             plotlyLayout={panelPlotlyLayout}
             plotlyConfig={chartConfig}
+            autoScale={autoScaleCharts}
+            scaleLockKey={`panel:${activeTicker || "none"}`}
             onPlotlyRelayout={usingPrimaryTicker ? handlePlotlyRelayout : undefined}
             onChartTradeIntent={(button, price) =>
               handleChartTradeIntentForTicker(activeTicker, button, price)

@@ -16,6 +16,7 @@ export default function EChartsCandles({
   showRangeSlider,
   theme,
   height,
+  autoScale = false,
 }) {
   const option = useMemo(() => {
     const palette = getChartPalette(theme);
@@ -60,7 +61,29 @@ export default function EChartsCandles({
         },
       })),
     ];
-
+    const yValues = [
+      ...candles.flatMap((candle) => [candle.low, candle.high, candle.open, candle.close]),
+      ...lineLevels.map((line) => line.yAxis),
+      ...dealPoints.map((point) => point.price),
+      ...openFillPoints.map((point) => point.price),
+      ...closeFillPoints.map((point) => point.price),
+    ]
+      .map((value) => Number(value))
+      .filter(Number.isFinite);
+    const minValue = yValues.length ? Math.min(...yValues) : null;
+    const maxValue = yValues.length ? Math.max(...yValues) : null;
+    const spread =
+      Number.isFinite(minValue) && Number.isFinite(maxValue) ? maxValue - minValue : null;
+    const padding =
+      Number.isFinite(spread) && spread > 0
+        ? spread * 0.08
+        : Number.isFinite(maxValue)
+          ? Math.max(Math.abs(maxValue) * 0.02, 1)
+          : 1;
+    const yRange =
+      Number.isFinite(minValue) && Number.isFinite(maxValue)
+        ? [minValue - padding, maxValue + padding]
+        : null;
     return {
       animation: false,
       backgroundColor: palette.background,
@@ -86,6 +109,8 @@ export default function EChartsCandles({
       },
       yAxis: {
         scale: true,
+        min: autoScale ? undefined : yRange?.[0],
+        max: autoScale ? undefined : yRange?.[1],
         axisLine: { lineStyle: { color: palette.grid } },
         splitLine: { lineStyle: { color: palette.grid } },
         axisLabel: { color: palette.text, fontSize: 10 },
@@ -194,6 +219,7 @@ export default function EChartsCandles({
     stopLossLevels,
     takeProfitLevels,
     theme,
+    autoScale,
   ]);
 
   return (

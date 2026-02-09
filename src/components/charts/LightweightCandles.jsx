@@ -18,6 +18,7 @@ export default function LightweightCandles({
   chartTradingEnabled,
   theme,
   height,
+  autoScale = false,
 }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
@@ -27,6 +28,7 @@ export default function LightweightCandles({
   const chartTradeIntentRef = useRef(onChartTradeIntent);
   const latestThemeRef = useRef(theme);
   const latestHeightRef = useRef(height);
+  const latestAutoScaleRef = useRef(autoScale);
 
   useEffect(() => {
     chartTradeIntentRef.current = onChartTradeIntent;
@@ -35,7 +37,8 @@ export default function LightweightCandles({
   useEffect(() => {
     latestThemeRef.current = theme;
     latestHeightRef.current = height;
-  }, [height, theme]);
+    latestAutoScaleRef.current = autoScale;
+  }, [autoScale, height, theme]);
 
   useEffect(() => {
     if (!containerRef.current) return undefined;
@@ -55,7 +58,7 @@ export default function LightweightCandles({
       },
       rightPriceScale: {
         borderColor: palette.border,
-        autoScale: false,
+        autoScale: latestAutoScaleRef.current,
       },
       timeScale: {
         borderColor: palette.border,
@@ -90,7 +93,7 @@ export default function LightweightCandles({
       wickDownColor: palette.down,
       borderVisible: false,
     });
-    candleSeries.priceScale().applyOptions({ autoScale: false });
+    candleSeries.priceScale().applyOptions({ autoScale: latestAutoScaleRef.current });
 
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
@@ -160,7 +163,7 @@ export default function LightweightCandles({
       },
       rightPriceScale: {
         borderColor: palette.border,
-        autoScale: false,
+        autoScale,
       },
       timeScale: {
         borderColor: palette.border,
@@ -180,8 +183,8 @@ export default function LightweightCandles({
       wickDownColor: palette.down,
       borderVisible: false,
     });
-    candleSeries.priceScale().applyOptions({ autoScale: false });
-  }, [height, theme]);
+    candleSeries.priceScale().applyOptions({ autoScale });
+  }, [autoScale, height, theme]);
 
   useEffect(() => {
     const chart = chartRef.current;

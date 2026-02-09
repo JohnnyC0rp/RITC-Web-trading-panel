@@ -23,6 +23,8 @@ export default function CandlesRenderer({
   onPlotlyRelayout,
   onChartTradeIntent,
   chartTradingEnabled,
+  autoScale,
+  scaleLockKey,
 }) {
   if (renderer === "lightweight") {
     return (
@@ -39,6 +41,7 @@ export default function CandlesRenderer({
         chartTradingEnabled={chartTradingEnabled}
         theme={theme}
         height={height}
+        autoScale={autoScale}
       />
     );
   }
@@ -57,6 +60,8 @@ export default function CandlesRenderer({
         showRangeSlider={showRangeSlider}
         theme={theme}
         height={height}
+        autoScale={autoScale}
+        scaleLockKey={scaleLockKey}
       />
     );
   }
@@ -75,6 +80,8 @@ export default function CandlesRenderer({
         showRangeSlider={showRangeSlider}
         theme={theme}
         height={height}
+        autoScale={autoScale}
+        scaleLockKey={scaleLockKey}
       />
     );
   }
@@ -92,6 +99,8 @@ export default function CandlesRenderer({
         referenceLevels={referenceLevels}
         theme={theme}
         height={height}
+        autoScale={autoScale}
+        scaleLockKey={scaleLockKey}
       />
     );
   }
@@ -105,6 +114,7 @@ export default function CandlesRenderer({
       onRelayout={onPlotlyRelayout}
       onChartTradeIntent={onChartTradeIntent}
       chartTradingEnabled={chartTradingEnabled}
+      autoScale={autoScale}
     />
   );
 }

@@ -17,6 +17,7 @@ export default function HighchartsCandles({
   showRangeSlider,
   theme,
   height,
+  autoScale = false,
 }) {
   const options = useMemo(() => {
     const palette = getChartPalette(theme);
@@ -24,6 +25,35 @@ export default function HighchartsCandles({
     const openSells = openFillPoints.filter((point) => point.side === "SELL");
     const closeBuys = closeFillPoints.filter((point) => point.side === "BUY");
     const closeSells = closeFillPoints.filter((point) => point.side === "SELL");
+    const levelValues = [
+      ...limitLevels.map((level) => level.price),
+      ...stopLossLevels.map((level) => level.price),
+      ...takeProfitLevels.map((level) => level.price),
+      ...referenceLevels.map((level) => level.price),
+    ];
+    const yValues = [
+      ...candles.flatMap((candle) => [candle.low, candle.high, candle.open, candle.close]),
+      ...levelValues,
+      ...dealPoints.map((point) => point.price),
+      ...openFillPoints.map((point) => point.price),
+      ...closeFillPoints.map((point) => point.price),
+    ]
+      .map((value) => Number(value))
+      .filter(Number.isFinite);
+    const minValue = yValues.length ? Math.min(...yValues) : null;
+    const maxValue = yValues.length ? Math.max(...yValues) : null;
+    const spread =
+      Number.isFinite(minValue) && Number.isFinite(maxValue) ? maxValue - minValue : null;
+    const padding =
+      Number.isFinite(spread) && spread > 0
+        ? spread * 0.08
+        : Number.isFinite(maxValue)
+          ? Math.max(Math.abs(maxValue) * 0.02, 1)
+          : 1;
+    const yRange =
+      Number.isFinite(minValue) && Number.isFinite(maxValue)
+        ? [minValue - padding, maxValue + padding]
+        : null;
 
     return {
       chart: {
@@ -56,6 +86,8 @@ export default function HighchartsCandles({
         title: { text: "Price", style: { color: palette.text } },
         gridLineColor: palette.grid,
         labels: { style: { color: palette.text, fontSize: "10px" } },
+        min: autoScale ? undefined : yRange?.[0],
+        max: autoScale ? undefined : yRange?.[1],
       },
       tooltip: {
         split: false,
@@ -202,6 +234,7 @@ export default function HighchartsCandles({
     stopLossLevels,
     takeProfitLevels,
     theme,
+    autoScale,
   ]);
 
   return (
