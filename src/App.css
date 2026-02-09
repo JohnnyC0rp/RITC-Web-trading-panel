@@ -796,6 +796,14 @@ button.small {
   overflow-wrap: anywhere;
 }
 
+.connection-compact--collapsed {
+  align-items: center;
+}
+
+.connection-compact--collapsed .status-pill {
+  justify-self: start;
+}
+
 .segmented {
   display: grid;
   grid-template-columns: 1fr 1fr;

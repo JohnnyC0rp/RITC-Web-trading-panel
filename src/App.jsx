@@ -4802,7 +4802,6 @@ function App() {
       </div>
     );
   };
-  const connectedHost = config ? formatHost(config.baseUrl) : "—";
   const routeSteps = useMemo(() => {
     if (connectionStatus !== "Connected") return [];
     if (mode === "local") {
@@ -4991,11 +4990,10 @@ function App() {
           <section className="card connection-card">
             <div className="card-title">Connection</div>
             {isConnected ? (
-              <div className="connection-compact">
-                <div>
-                  <div className="muted">Connected to {connectedHost}</div>
-                  <div className="muted">Case: {caseLabel}</div>
-                </div>
+              <div className="connection-compact connection-compact--collapsed">
+                <span className={`status-pill status-pill--compact ${statusClass}`}>
+                  {statusLabel}
+                </span>
                 <button type="button" className="ghost" onClick={disconnect}>
                   Disconnect
                 </button>
