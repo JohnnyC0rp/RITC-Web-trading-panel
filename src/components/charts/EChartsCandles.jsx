@@ -17,6 +17,7 @@ export default function EChartsCandles({
   theme,
   height,
   autoScale = false,
+  lockedYRange = null,
 }) {
   const option = useMemo(() => {
     const palette = getChartPalette(theme);
@@ -80,10 +81,12 @@ export default function EChartsCandles({
         : Number.isFinite(maxValue)
           ? Math.max(Math.abs(maxValue) * 0.02, 1)
           : 1;
-    const yRange =
+    const dynamicYRange =
       Number.isFinite(minValue) && Number.isFinite(maxValue)
         ? [minValue - padding, maxValue + padding]
         : null;
+    const yRange =
+      !autoScale && Array.isArray(lockedYRange) ? lockedYRange : dynamicYRange;
     return {
       animation: false,
       backgroundColor: palette.background,
@@ -220,6 +223,7 @@ export default function EChartsCandles({
     takeProfitLevels,
     theme,
     autoScale,
+    lockedYRange,
   ]);
 
   return (

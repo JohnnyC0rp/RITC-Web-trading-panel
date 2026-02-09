@@ -18,6 +18,7 @@ export default function HighchartsCandles({
   theme,
   height,
   autoScale = false,
+  lockedYRange = null,
 }) {
   const options = useMemo(() => {
     const palette = getChartPalette(theme);
@@ -50,10 +51,12 @@ export default function HighchartsCandles({
         : Number.isFinite(maxValue)
           ? Math.max(Math.abs(maxValue) * 0.02, 1)
           : 1;
-    const yRange =
+    const dynamicYRange =
       Number.isFinite(minValue) && Number.isFinite(maxValue)
         ? [minValue - padding, maxValue + padding]
         : null;
+    const yRange =
+      !autoScale && Array.isArray(lockedYRange) ? lockedYRange : dynamicYRange;
 
     return {
       chart: {
@@ -235,6 +238,7 @@ export default function HighchartsCandles({
     takeProfitLevels,
     theme,
     autoScale,
+    lockedYRange,
   ]);
 
   return (

@@ -20,20 +20,11 @@ export default function D3Candles({
   theme,
   height,
   autoScale = false,
-  scaleLockKey = "default",
+  lockedYRange = null,
 }) {
   const wrapRef = useRef(null);
   const svgRef = useRef(null);
-  const lockedYRangeRef = useRef(null);
   const [width, setWidth] = useState(0);
-
-  useEffect(() => {
-    if (autoScale) lockedYRangeRef.current = null;
-  }, [autoScale]);
-
-  useEffect(() => {
-    lockedYRangeRef.current = null;
-  }, [scaleLockKey]);
 
   useEffect(() => {
     if (!wrapRef.current) return undefined;
@@ -62,12 +53,8 @@ export default function D3Candles({
     const yMax = d3.max(candles, (candle) => candle.high);
     const yPad = (yMax - yMin || 1) * 0.06;
     const dynamicRange = [yMin - yPad, yMax + yPad];
-    if (!autoScale && !lockedYRangeRef.current) {
-      lockedYRangeRef.current = dynamicRange;
-    }
-    const [rangeMin, rangeMax] = autoScale
-      ? dynamicRange
-      : lockedYRangeRef.current || dynamicRange;
+    const [rangeMin, rangeMax] =
+      !autoScale && Array.isArray(lockedYRange) ? lockedYRange : dynamicRange;
 
     const x = d3
       .scaleBand()
@@ -259,7 +246,7 @@ export default function D3Candles({
     theme,
     width,
     autoScale,
-    scaleLockKey,
+    lockedYRange,
   ]);
 
   return (

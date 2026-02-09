@@ -4033,7 +4033,7 @@ function App() {
           plotlyLayout={plotlyLayoutForPair}
           plotlyConfig={chartConfig}
           autoScale={autoScaleCharts}
-          scaleLockKey={`mna:${pair.id}:${ticker}`}
+          lockedYRange={yAxisScaleConfig.range || null}
           onChartTradeIntent={(button, price) =>
             handleChartTradeIntentForTicker(ticker, button, price)
           }
@@ -4686,7 +4686,7 @@ function App() {
             plotlyLayout={panelPlotlyLayout}
             plotlyConfig={chartConfig}
             autoScale={autoScaleCharts}
-            scaleLockKey={`panel:${activeTicker || "none"}`}
+            lockedYRange={yAxisScaleConfig.range || null}
             onPlotlyRelayout={usingPrimaryTicker ? handlePlotlyRelayout : undefined}
             onChartTradeIntent={(button, price) =>
               handleChartTradeIntentForTicker(activeTicker, button, price)
