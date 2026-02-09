@@ -1,3 +1,10 @@
+2026-02-09T13:19:10Z
+🧭 Lightweight charts now preserve zoom/pan range during live updates instead of snapping back.
+🖱️ Chart mouse trading now defaults to enabled, and TP/SL offsets are applied as percentages.
+🧩 M&A Graph View now has a parent Chart View with independent Chart Settings and Pairs subsections.
+📈 Pair charts now use a default-reference checkbox (on by default) and no longer plot peer-company price lines.
+🌑 Dark mode now uses black chart backgrounds across supported renderers and improved tender/news readability.
+==================
 2026-02-09T12:40:39Z
 📊 Multi-book mode now renders a separate candles panel for each open book ticker.
 🤝 M&A charts now show deal-value and case start-price reference lines on both target and acquirer charts.
