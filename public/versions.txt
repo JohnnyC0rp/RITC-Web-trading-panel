@@ -1,3 +1,7 @@
+2026-02-09T06:40:10Z
+🧭 Auto order-book recenter on connect/tick-1 is now disabled so manual scroll stays put.
+🧩 Chart settings now render below the plot area for a cleaner visual flow.
+==================
 2026-02-08T19:05:56Z
 🧱 Order Book View layout alignment was corrected to remove the large empty gap above ladder rows.
 🖱️ Chart click handlers now report a clear prompt when mouse trading is disabled instead of silently doing nothing.

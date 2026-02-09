@@ -84,6 +84,7 @@ const BOOK_POLL_MAX_MS = 1800;
 const BOOK_POLL_BACKOFF_MS = 250;
 const BOOK_ROW_HEIGHT_PX = 20;
 const BOOK_EDGE_BUFFER_TICKS = 10;
+const AUTO_CENTER_BOOK_ON_CONNECT = false; // Auto-centering was cute, but traders like their scroll where they left it.
 const PNL_TICK_STEP = 5;
 const CANDLE_BUCKET = 5;
 const ORDERBOOK_DISPLAY_OPTIONS = [
@@ -3210,6 +3211,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!AUTO_CENTER_BOOK_ON_CONNECT) return;
     if (connectionStatus !== "Connected") return;
     const caseKey = caseInfo?.name ?? caseInfo?.case_id ?? caseInfo?.case ?? null;
     const bookCenterState = bookCenterRef.current;
@@ -4263,205 +4265,209 @@ function App() {
   const splitOrderbookLayout = showOrderbookPanels && !isMultiBook;
   const chartPanelHeight = showOrderbookPanels ? (isMultiBook ? 320 : 420) : isMergerArbCase ? 420 : 620;
 
-  const renderChartPanel = (inline = false) => (
-    <div className={`orderbook-candles ${inline ? "orderbook-candles--inline" : ""}`}>
-      <div className="card-title chart-header">
-        <span>{isMergerArbCase ? "Merger Pair Candles" : "Candles"}</span>
-        <button
-          type="button"
-          className="ghost"
-          onClick={() => setShowChartSettings((prev) => !prev)}
-        >
-          Chart Settings
-        </button>
-      </div>
-      {showChartSettings && (
-        <div className="chart-settings">
-          <label className="chart-control">
-            <span>Renderer</span>
-            <select
-              value={chartRenderer}
-              onChange={(event) => setChartRenderer(event.target.value)}
-            >
-              {CANDLE_RENDERERS.map((renderer) => (
-                <option key={renderer.id} value={renderer.id}>
-                  {renderer.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={showRangeSlider}
-              disabled={!chartRendererMeta.supportsRangeSlider}
-              onChange={(event) => setShowRangeSlider(event.target.checked)}
-            />
-            Enable range slider
-          </label>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={chartMouseTrading}
-              onChange={(event) => setChartMouseTrading(event.target.checked)}
-            />
-            Enable chart mouse trading
-          </label>
-          <label className="chart-control chart-control--small">
-            <span>Quick Qty</span>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={orderDraft.quantity}
-              onChange={(event) =>
-                setOrderDraft((prev) => ({
-                  ...prev,
-                  quantity: event.target.value,
-                }))
-              }
-            />
-          </label>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={Boolean(bracketDefaults.enabled)}
-              onChange={(event) =>
-                setBracketDefaults((prev) => ({
-                  ...prev,
-                  enabled: event.target.checked,
-                }))
-              }
-            />
-            Apply default TP/SL to quick orders
-          </label>
-          <label className="chart-control chart-control--small">
-            <span>SL Offset</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={bracketDefaults.stopLossOffset}
-              disabled={!bracketDefaults.enabled}
-              onChange={(event) =>
-                setBracketDefaults((prev) => ({
-                  ...prev,
-                  stopLossOffset: event.target.value,
-                }))
-              }
-            />
-          </label>
-          <label className="chart-control chart-control--small">
-            <span>TP Offset</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={bracketDefaults.takeProfitOffset}
-              disabled={!bracketDefaults.enabled}
-              onChange={(event) =>
-                setBracketDefaults((prev) => ({
-                  ...prev,
-                  takeProfitOffset: event.target.value,
-                }))
-              }
-            />
-          </label>
-          <div className="muted chart-engine-hint">{chartRendererMeta.description}</div>
-          {!chartRendererMeta.supportsRangeSlider && (
-            <div className="muted chart-engine-hint">
-              Range slider is unavailable for this renderer.
-            </div>
-          )}
-          <div className="muted chart-engine-hint">
-            Chart trading: LMB = buy (below mid limit, above mid market), RMB = sell (above mid limit, below mid market).
-            {chartMouseTrading ? " Trading is active." : " Enable it before sending chart orders."}
-          </div>
-          {isMergerArbCase && (
-            <div className="muted chart-engine-hint">
-              Merger mode opens target/acquirer charts in pairs and draws deal target levels on target-company charts.
-            </div>
-          )}
-          {chartRendererMeta.supportsIndicators ? (
-            <details className="indicator-menu">
-              <summary>Indicators ({INDICATORS.length})</summary>
-              <div className="indicator-list">
-                {INDICATORS.map((indicator) => (
-                  <label key={indicator.id} className="indicator-row">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(indicatorState[indicator.id])}
-                      onChange={() =>
-                        setIndicatorState((prev) => ({
-                          ...prev,
-                          [indicator.id]: !prev[indicator.id],
-                        }))
-                      }
-                    />
-                    <span>{indicator.label}</span>
-                    <button
-                      type="button"
-                      className="indicator-info"
-                      aria-label={`About ${indicator.label}`}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setIndicatorInfo(indicator);
-                      }}
-                    >
-                      i
-                    </button>
-                  </label>
-                ))}
-              </div>
-            </details>
-          ) : (
-            <div className="muted chart-engine-hint">
-              Indicators are currently available only in the Plotly renderer.
-            </div>
-          )}
+  const renderChartPanel = (inline = false) => {
+    const chartBody = isMergerArbCase ? (
+      <MnaPairsSection
+        activePairIds={activeMnaPairIds}
+        pairOptions={MNA_CASE_PAIRS}
+        pairById={MNA_CASE_PAIR_BY_ID}
+        onAddPair={addMnaPair}
+        onRemovePair={removeMnaPairAt}
+        onChangePair={updateMnaPairAt}
+        canAddPair={canAddMnaPair}
+        isPairOptionDisabled={isMnaPairOptionDisabled}
+        isPeerPriceVisible={isMnaPeerPriceVisible}
+        onPeerPriceToggle={setMnaPeerPriceVisible}
+        renderTickerChart={renderMnaTickerChart}
+      />
+    ) : candles.length === 0 ? (
+      <div className="muted">No candle history yet.</div>
+    ) : (
+      <CandlesRenderer
+        renderer={chartRenderer}
+        candles={candles}
+        dealPoints={dealPoints}
+        openFillPoints={openFillPoints}
+        closeFillPoints={closeFillPoints}
+        limitLevels={orderLevels.limit}
+        stopLossLevels={orderLevels.stopLoss}
+        takeProfitLevels={orderLevels.takeProfit}
+        referenceLevels={selectedMnaReferenceLevels}
+        showRangeSlider={showRangeSlider}
+        theme={theme}
+        height={chartPanelHeight}
+        plotlyData={chartData}
+        plotlyLayout={chartLayout}
+        plotlyConfig={chartConfig}
+        onPlotlyRelayout={handlePlotlyRelayout}
+        onChartTradeIntent={handleChartTradeIntent}
+        chartTradingEnabled={Boolean(config && selectedTicker && chartMouseTrading)}
+      />
+    );
+
+    return (
+      <div className={`orderbook-candles ${inline ? "orderbook-candles--inline" : ""}`}>
+        <div className="card-title chart-header">
+          <span>{isMergerArbCase ? "Merger Pair Candles" : "Candles"}</span>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => setShowChartSettings((prev) => !prev)}
+          >
+            Chart Settings
+          </button>
         </div>
-      )}
-      {isMergerArbCase ? (
-        <MnaPairsSection
-          activePairIds={activeMnaPairIds}
-          pairOptions={MNA_CASE_PAIRS}
-          pairById={MNA_CASE_PAIR_BY_ID}
-          onAddPair={addMnaPair}
-          onRemovePair={removeMnaPairAt}
-          onChangePair={updateMnaPairAt}
-          canAddPair={canAddMnaPair}
-          isPairOptionDisabled={isMnaPairOptionDisabled}
-          isPeerPriceVisible={isMnaPeerPriceVisible}
-          onPeerPriceToggle={setMnaPeerPriceVisible}
-          renderTickerChart={renderMnaTickerChart}
-        />
-      ) : candles.length === 0 ? (
-        <div className="muted">No candle history yet.</div>
-      ) : (
-        <CandlesRenderer
-          renderer={chartRenderer}
-          candles={candles}
-          dealPoints={dealPoints}
-          openFillPoints={openFillPoints}
-          closeFillPoints={closeFillPoints}
-          limitLevels={orderLevels.limit}
-          stopLossLevels={orderLevels.stopLoss}
-          takeProfitLevels={orderLevels.takeProfit}
-          referenceLevels={selectedMnaReferenceLevels}
-          showRangeSlider={showRangeSlider}
-          theme={theme}
-          height={chartPanelHeight}
-          plotlyData={chartData}
-          plotlyLayout={chartLayout}
-          plotlyConfig={chartConfig}
-          onPlotlyRelayout={handlePlotlyRelayout}
-          onChartTradeIntent={handleChartTradeIntent}
-          chartTradingEnabled={Boolean(config && selectedTicker && chartMouseTrading)}
-        />
-      )}
-    </div>
-  );
+        {chartBody}
+        {showChartSettings && (
+          <div className="chart-settings">
+            <label className="chart-control">
+              <span>Renderer</span>
+              <select
+                value={chartRenderer}
+                onChange={(event) => setChartRenderer(event.target.value)}
+              >
+                {CANDLE_RENDERERS.map((renderer) => (
+                  <option key={renderer.id} value={renderer.id}>
+                    {renderer.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={showRangeSlider}
+                disabled={!chartRendererMeta.supportsRangeSlider}
+                onChange={(event) => setShowRangeSlider(event.target.checked)}
+              />
+              Enable range slider
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={chartMouseTrading}
+                onChange={(event) => setChartMouseTrading(event.target.checked)}
+              />
+              Enable chart mouse trading
+            </label>
+            <label className="chart-control chart-control--small">
+              <span>Quick Qty</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={orderDraft.quantity}
+                onChange={(event) =>
+                  setOrderDraft((prev) => ({
+                    ...prev,
+                    quantity: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={Boolean(bracketDefaults.enabled)}
+                onChange={(event) =>
+                  setBracketDefaults((prev) => ({
+                    ...prev,
+                    enabled: event.target.checked,
+                  }))
+                }
+              />
+              Apply default TP/SL to quick orders
+            </label>
+            <label className="chart-control chart-control--small">
+              <span>SL Offset</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={bracketDefaults.stopLossOffset}
+                disabled={!bracketDefaults.enabled}
+                onChange={(event) =>
+                  setBracketDefaults((prev) => ({
+                    ...prev,
+                    stopLossOffset: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label className="chart-control chart-control--small">
+              <span>TP Offset</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={bracketDefaults.takeProfitOffset}
+                disabled={!bracketDefaults.enabled}
+                onChange={(event) =>
+                  setBracketDefaults((prev) => ({
+                    ...prev,
+                    takeProfitOffset: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <div className="muted chart-engine-hint">{chartRendererMeta.description}</div>
+            {!chartRendererMeta.supportsRangeSlider && (
+              <div className="muted chart-engine-hint">
+                Range slider is unavailable for this renderer.
+              </div>
+            )}
+            <div className="muted chart-engine-hint">
+              Chart trading: LMB = buy (below mid limit, above mid market), RMB = sell (above mid limit, below mid market).
+              {chartMouseTrading ? " Trading is active." : " Enable it before sending chart orders."}
+            </div>
+            {isMergerArbCase && (
+              <div className="muted chart-engine-hint">
+                Merger mode opens target/acquirer charts in pairs and draws deal target levels on target-company charts.
+              </div>
+            )}
+            {chartRendererMeta.supportsIndicators ? (
+              <details className="indicator-menu">
+                <summary>Indicators ({INDICATORS.length})</summary>
+                <div className="indicator-list">
+                  {INDICATORS.map((indicator) => (
+                    <label key={indicator.id} className="indicator-row">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(indicatorState[indicator.id])}
+                        onChange={() =>
+                          setIndicatorState((prev) => ({
+                            ...prev,
+                            [indicator.id]: !prev[indicator.id],
+                          }))
+                        }
+                      />
+                      <span>{indicator.label}</span>
+                      <button
+                        type="button"
+                        className="indicator-info"
+                        aria-label={`About ${indicator.label}`}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setIndicatorInfo(indicator);
+                        }}
+                      >
+                        i
+                      </button>
+                    </label>
+                  ))}
+                </div>
+              </details>
+            ) : (
+              <div className="muted chart-engine-hint">
+                Indicators are currently available only in the Plotly renderer.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
   const connectedHost = config ? formatHost(config.baseUrl) : "—";
   const routeSteps = useMemo(() => {
     if (connectionStatus !== "Connected") return [];
