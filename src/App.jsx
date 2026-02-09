@@ -84,7 +84,7 @@ const BOOK_POLL_MAX_MS = 1800;
 const BOOK_POLL_BACKOFF_MS = 250;
 const BOOK_ROW_HEIGHT_PX = 20;
 const BOOK_EDGE_BUFFER_TICKS = 10;
-const AUTO_CENTER_BOOK_ON_CONNECT = false; // Auto-centering was cute, but traders like their scroll where they left it.
+const AUTO_CENTER_BOOK_ON_CONNECT = true; // Auto-centering is back; turns out the desk likes a tidy reset.
 const PNL_TICK_STEP = 5;
 const CANDLE_BUCKET = 5;
 const ORDERBOOK_DISPLAY_OPTIONS = [
@@ -3236,6 +3236,31 @@ function App() {
     connectionStatus,
     lastConnectAt,
     priceRows.length,
+  ]);
+
+  useEffect(() => {
+    if (!AUTO_CENTER_BOOK_ON_CONNECT) return;
+    if (connectionStatus !== "Connected") return;
+    if (orderbookDisplayMode !== "book") return;
+    const tick = Number(caseInfo?.tick);
+    if (!Number.isFinite(tick) || tick !== 1) return;
+    const caseKey = caseInfo?.name ?? caseInfo?.case_id ?? caseInfo?.case ?? null;
+    const period = caseInfo?.period ?? null;
+    const tickKey = `${caseKey ?? "case"}:${period ?? "p0"}`;
+    const bookCenterState = bookCenterRef.current;
+    if (bookCenterState.tick1Period === tickKey) return;
+    if (!centerOrderBook()) return;
+    // Tick-1 auto-center: because the new period deserves a clean slate.
+    bookCenterState.tick1Period = tickKey;
+  }, [
+    caseInfo?.case,
+    caseInfo?.case_id,
+    caseInfo?.name,
+    caseInfo?.period,
+    caseInfo?.tick,
+    centerOrderBook,
+    connectionStatus,
+    orderbookDisplayMode,
   ]);
 
   // Order book scroll stays where the trader puts it. Autoscroll was cute, not useful.
