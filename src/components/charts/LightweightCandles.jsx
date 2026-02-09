@@ -20,15 +20,135 @@ export default function LightweightCandles({
   height,
 }) {
   const containerRef = useRef(null);
-  const visibleRangeRef = useRef(null);
+  const chartRef = useRef(null);
+  const candleSeriesRef = useRef(null);
+  const priceLinesRef = useRef([]);
+  const didInitialFitRef = useRef(false);
+  const chartTradeIntentRef = useRef(onChartTradeIntent);
+  const latestThemeRef = useRef(theme);
+  const latestHeightRef = useRef(height);
 
   useEffect(() => {
-    if (!containerRef.current || !candles.length) return undefined;
+    chartTradeIntentRef.current = onChartTradeIntent;
+  }, [onChartTradeIntent]);
 
-    const palette = getChartPalette(theme);
+  useEffect(() => {
+    latestThemeRef.current = theme;
+    latestHeightRef.current = height;
+  }, [height, theme]);
+
+  useEffect(() => {
+    if (!containerRef.current) return undefined;
+
+    const palette = getChartPalette(latestThemeRef.current);
     const container = containerRef.current;
     const chart = createChart(container, {
       width: container.clientWidth,
+      height: latestHeightRef.current,
+      layout: {
+        textColor: palette.text,
+        background: { color: palette.background },
+      },
+      grid: {
+        vertLines: { color: palette.grid },
+        horzLines: { color: palette.grid },
+      },
+      rightPriceScale: {
+        borderColor: palette.border,
+        autoScale: false,
+      },
+      timeScale: {
+        borderColor: palette.border,
+        secondsVisible: false,
+        fixLeftEdge: true,
+        fixRightEdge: true,
+      },
+      crosshair: {
+        vertLine: { color: palette.border },
+        horzLine: { color: palette.border },
+      },
+      handleScale: {
+        mouseWheel: true,
+        pinch: true,
+        axisPressedMouseMove: {
+          time: true,
+          price: true,
+        },
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: true,
+      },
+    });
+
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: palette.up,
+      downColor: palette.down,
+      wickUpColor: palette.up,
+      wickDownColor: palette.down,
+      borderVisible: false,
+    });
+    candleSeries.priceScale().applyOptions({ autoScale: false });
+
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+
+    const toPrice = (clientY) => {
+      const rect = container.getBoundingClientRect();
+      const y = clientY - rect.top;
+      const numeric = candleSeries.coordinateToPrice(y);
+      return Number.isFinite(Number(numeric)) ? Number(numeric) : null;
+    };
+
+    const handleClick = (event) => {
+      const callback = chartTradeIntentRef.current;
+      if (!callback) return;
+      const clickedPrice = toPrice(event.clientY);
+      if (clickedPrice == null) return;
+      callback("left", clickedPrice);
+    };
+
+    const handleContextMenu = (event) => {
+      const callback = chartTradeIntentRef.current;
+      if (!callback) return;
+      event.preventDefault();
+      const clickedPrice = toPrice(event.clientY);
+      if (clickedPrice == null) return;
+      callback("right", clickedPrice);
+    };
+
+    container.addEventListener("click", handleClick);
+    container.addEventListener("contextmenu", handleContextMenu);
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const nextWidth = entries[0]?.contentRect?.width;
+      if (!nextWidth) return;
+      chart.applyOptions({ width: nextWidth, height: latestHeightRef.current });
+    });
+    resizeObserver.observe(container);
+
+    return () => {
+      container.removeEventListener("click", handleClick);
+      container.removeEventListener("contextmenu", handleContextMenu);
+      resizeObserver.disconnect();
+      priceLinesRef.current.forEach((line) => candleSeries.removePriceLine(line));
+      priceLinesRef.current = [];
+      chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+      didInitialFitRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const candleSeries = candleSeriesRef.current;
+    if (!chart || !candleSeries) return;
+
+    const palette = getChartPalette(theme);
+    chart.applyOptions({
       height,
       layout: {
         textColor: palette.text,
@@ -40,6 +160,7 @@ export default function LightweightCandles({
       },
       rightPriceScale: {
         borderColor: palette.border,
+        autoScale: false,
       },
       timeScale: {
         borderColor: palette.border,
@@ -52,14 +173,22 @@ export default function LightweightCandles({
         horzLine: { color: palette.border },
       },
     });
-
-    const candleSeries = chart.addCandlestickSeries({
+    candleSeries.applyOptions({
       upColor: palette.up,
       downColor: palette.down,
       wickUpColor: palette.up,
       wickDownColor: palette.down,
       borderVisible: false,
     });
+    candleSeries.priceScale().applyOptions({ autoScale: false });
+  }, [height, theme]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const candleSeries = candleSeriesRef.current;
+    if (!chart || !candleSeries) return;
+
+    const palette = getChartPalette(theme);
 
     const tickToTime = new Map();
     const candleSeriesData = candles.map((candle, index) => {
@@ -77,7 +206,6 @@ export default function LightweightCandles({
     candleSeries.setData(candleSeriesData);
 
     const markerData = [
-      // Deal markers stay small to avoid cluttering the candles (they are shy).
       ...dealPoints
         .map((deal) => {
           const time = tickToTime.get(deal.tick);
@@ -123,6 +251,9 @@ export default function LightweightCandles({
 
     candleSeries.setMarkers(markerData);
 
+    priceLinesRef.current.forEach((line) => candleSeries.removePriceLine(line));
+    priceLinesRef.current = [];
+
     const resolveLineStyle = (style) => {
       if (style === "dot") return 1;
       if (style === "dash") return 2;
@@ -142,7 +273,7 @@ export default function LightweightCandles({
       });
     };
 
-    const priceLines = [
+    priceLinesRef.current = [
       ...limitLevels
         .map((level) =>
           addPriceLine(
@@ -171,94 +302,16 @@ export default function LightweightCandles({
         .filter(Boolean),
     ];
 
-    const referencePrices = [
-      ...limitLevels.map((level) => Number(level.price)),
-      ...stopLossLevels.map((level) => Number(level.price)),
-      ...takeProfitLevels.map((level) => Number(level.price)),
-      ...referenceLevels.map((level) => Number(level.price)),
-    ].filter((price) => Number.isFinite(price));
-    if (referencePrices.length) {
-      const candleLow = Math.min(...candleSeriesData.map((point) => Number(point.low)));
-      const candleHigh = Math.max(...candleSeriesData.map((point) => Number(point.high)));
-      const minBound = Math.min(candleLow, ...referencePrices);
-      const maxBound = Math.max(candleHigh, ...referencePrices);
-      candleSeries.applyOptions({
-        autoscaleInfoProvider: (baseImplementation) => {
-          const baseInfo =
-            typeof baseImplementation === "function" ? baseImplementation() : null;
-          const baseMin = Number(baseInfo?.priceRange?.minValue);
-          const baseMax = Number(baseInfo?.priceRange?.maxValue);
-          return {
-            ...(baseInfo || {}),
-            priceRange: {
-              minValue: Number.isFinite(baseMin) ? Math.min(baseMin, minBound) : minBound,
-              maxValue: Number.isFinite(baseMax) ? Math.max(baseMax, maxBound) : maxBound,
-            },
-          };
-        },
-      });
-    }
-
-    if (visibleRangeRef.current) {
-      chart.timeScale().setVisibleLogicalRange(visibleRangeRef.current);
-    } else {
+    if (!didInitialFitRef.current && candleSeriesData.length) {
+      // Fit once on initial load, then keep hands off so manual zoom/scale survives updates.
       chart.timeScale().fitContent();
+      didInitialFitRef.current = true;
     }
-
-    const handleVisibleRangeChange = (range) => {
-      if (!range) return;
-      visibleRangeRef.current = range;
-    };
-    chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
-
-    const toPrice = (clientY) => {
-      const rect = container.getBoundingClientRect();
-      const y = clientY - rect.top;
-      const numeric = candleSeries.coordinateToPrice(y);
-      return Number.isFinite(Number(numeric)) ? Number(numeric) : null;
-    };
-
-    const handleClick = (event) => {
-      if (!onChartTradeIntent) return;
-      const clickedPrice = toPrice(event.clientY);
-      if (clickedPrice == null) return;
-      onChartTradeIntent("left", clickedPrice);
-    };
-
-    const handleContextMenu = (event) => {
-      if (!onChartTradeIntent) return;
-      event.preventDefault();
-      const clickedPrice = toPrice(event.clientY);
-      if (clickedPrice == null) return;
-      onChartTradeIntent("right", clickedPrice);
-    };
-
-    container.addEventListener("click", handleClick);
-    container.addEventListener("contextmenu", handleContextMenu);
-
-    const resizeObserver = new ResizeObserver((entries) => {
-      const nextWidth = entries[0]?.contentRect?.width;
-      if (!nextWidth) return;
-      chart.applyOptions({ width: nextWidth, height });
-    });
-    resizeObserver.observe(container);
-
-    return () => {
-      container.removeEventListener("click", handleClick);
-      container.removeEventListener("contextmenu", handleContextMenu);
-      chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
-      priceLines.forEach((line) => candleSeries.removePriceLine(line));
-      resizeObserver.disconnect();
-      chart.remove();
-    };
   }, [
     candles,
-    chartTradingEnabled,
     closeFillPoints,
     dealPoints,
-    height,
     limitLevels,
-    onChartTradeIntent,
     openFillPoints,
     referenceLevels,
     stopLossLevels,
