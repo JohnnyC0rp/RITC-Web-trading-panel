@@ -1362,7 +1362,7 @@ button.full {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .orderbook-actions {
@@ -1443,17 +1443,38 @@ button.full {
   background: #ffffff;
 }
 
-.mna-pairs {
+.multibook-candles-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: 12px;
 }
 
-.mna-pairs-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.multibook-candles-item {
+  min-width: 0;
+}
+
+.mna-pairs {
+  display: grid;
   gap: 10px;
-  flex-wrap: wrap;
+}
+
+.mna-pairs-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.mna-toolbar-title {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.mna-toolbar-note {
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mna-pairs-list {
@@ -1538,7 +1559,7 @@ button.full {
 }
 
 .mna-chart-panel .orderbook-candles {
-  min-height: 380px;
+  min-height: 460px;
 }
 
 .api-lab {
@@ -2396,6 +2417,10 @@ button.full {
     grid-template-columns: 1fr;
   }
 
+  .multibook-candles-grid {
+    grid-template-columns: 1fr;
+  }
+
   .topbar {
     grid-template-columns: 1fr;
   }
@@ -2514,6 +2539,11 @@ button.full {
 
   .orderbook-grid {
     grid-template-columns: 1fr;
+  }
+
+  .mna-pairs-toolbar {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
   }
 }
 

@@ -10,6 +10,7 @@ import {
   MNA_CASE_PAIR_BY_ID,
   MNA_DEFAULT_PAIR_IDS,
   deriveMnaTargetPrice,
+  getMnaStartingPrice,
   sanitizeMnaPairIds,
 } from "./components/sections/mnaPairsConfig";
 import {
@@ -1073,6 +1074,7 @@ function App() {
   const [orderbookDisplayMode, setOrderbookDisplayMode] = useState(DEFAULT_ORDERBOOK_DISPLAY);
   const [bracketDefaults, setBracketDefaults] = useState(DEFAULT_BRACKET_SETTINGS);
   const [bookPanels, setBookPanels] = useState([{ id: BOOK_PANEL_PRIMARY_ID, ticker: "" }]);
+  const [bookHistoryByTicker, setBookHistoryByTicker] = useState({});
   const [mnaPairIds, setMnaPairIds] = useState([...MNA_DEFAULT_PAIR_IDS]);
   const [mnaPeerPriceVisibility, setMnaPeerPriceVisibility] = useState({});
   const [mnaHistoryByTicker, setMnaHistoryByTicker] = useState({});
@@ -1752,6 +1754,7 @@ function App() {
     setBookPanels([{ id: BOOK_PANEL_PRIMARY_ID, ticker: "" }]);
     setBooksByTicker({});
     setHistory([]);
+    setBookHistoryByTicker({});
     setMnaHistoryByTicker({});
     setOrders([]);
     setBookExtraRows({});
@@ -2551,6 +2554,71 @@ function App() {
   ]);
 
   useEffect(() => {
+    if (isMergerArbCase || !selectedTicker) return;
+    if (!Array.isArray(history) || !history.length) return;
+    setBookHistoryByTicker((prev) => ({
+      ...prev,
+      [selectedTicker]: history,
+    }));
+  }, [history, isMergerArbCase, selectedTicker]);
+
+  useEffect(() => {
+    if (!config || isMergerArbCase || orderbookDisplayMode !== "book" || bookPanels.length <= 1) {
+      return;
+    }
+    const tickers = Array.from(new Set(bookPanels.map((panel) => panel.ticker).filter(Boolean)));
+    if (!tickers.length) return;
+    let stop = false;
+    let timeoutId = null;
+    let cursor = 0;
+    let delayMs = Math.max(1200, tickers.length * 380);
+
+    const pull = async () => {
+      if (stop) return;
+      const periodLimit = Number(caseInfo?.ticks_per_period) || 300;
+      const limit = Math.max(120, periodLimit);
+      const ticker = tickers[cursor % tickers.length];
+      cursor += 1;
+      try {
+        const rows = await apiGet("/securities/history", { ticker, limit });
+        if (!stop && Array.isArray(rows)) {
+          setBookHistoryByTicker((prev) => ({
+            ...prev,
+            [ticker]: rows,
+          }));
+        }
+        delayMs = Math.max(1200, tickers.length * 380);
+      } catch (error) {
+        if (!stop && error?.status !== 429) {
+          log(`Book chart history error (${ticker}): ${error.message}`, "error");
+          maybeSuggestProxy(error);
+        }
+        if (error?.status === 429) {
+          delayMs = Math.min(6000, Math.round(delayMs * 1.5));
+        }
+      } finally {
+        if (!stop) timeoutId = setTimeout(pull, delayMs);
+      }
+    };
+
+    pull();
+    return () => {
+      stop = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [
+    apiGet,
+    bookPanels,
+    caseInfo?.ticks_per_period,
+    config,
+    historyEpoch,
+    isMergerArbCase,
+    log,
+    maybeSuggestProxy,
+    orderbookDisplayMode,
+  ]);
+
+  useEffect(() => {
     if (!isMergerArbCase || !config) return;
     const tickers = Array.from(
       new Set(
@@ -2613,6 +2681,12 @@ function App() {
     if (isMergerArbCase) return;
     setMnaHistoryByTicker({});
   }, [isMergerArbCase]);
+
+  useEffect(() => {
+    if (isMergerArbCase) return;
+    if (bookPanels.length > 1) return;
+    setBookHistoryByTicker({});
+  }, [bookPanels.length, isMergerArbCase]);
 
   const handleCancel = async (orderId) => {
     if (!config) return;
@@ -3320,18 +3394,6 @@ function App() {
   // Chart model build stage: candles, fills, order levels, and indicator overlays.
   const candles = useMemo(() => aggregateCandles(history, 5), [history]);
 
-  const candleData = useMemo(() => {
-    if (!candles.length) return null;
-    const ticks = candles.map((c) => c.tick);
-    return {
-      x: ticks,
-      open: candles.map((c) => c.open),
-      high: candles.map((c) => c.high),
-      low: candles.map((c) => c.low),
-      close: candles.map((c) => c.close),
-    };
-  }, [candles]);
-
   const indicatorData = useMemo(() => {
     if (!candles.length) return null;
     const ticks = candles.map((c) => c.tick);
@@ -3407,18 +3469,6 @@ function App() {
     [tasTrades]
   );
 
-  const dealTrace = useMemo(() => {
-    if (!dealPoints.length) return null;
-    return {
-      type: "scatter",
-      mode: "markers",
-      name: "Deals",
-      x: dealPoints.map((trade) => trade.tick),
-      y: dealPoints.map((trade) => trade.price),
-      marker: { size: 4, color: "rgba(148, 163, 184, 0.55)" },
-    };
-  }, [dealPoints]);
-
   const fillMarkers = useMemo(() => {
     return buildFillMarkersForTicker(fills, selectedTicker);
   }, [fills, selectedTicker]);
@@ -3456,48 +3506,6 @@ function App() {
     });
   }, [decimalsByTicker, orders, selectedTicker]);
 
-  const orderLevelTraces = useMemo(() => {
-    if (!candleData?.x?.length) return [];
-    const xStart = candleData.x[0];
-    const xEnd = candleData.x[candleData.x.length - 1];
-    const traces = [];
-    orderLevels.limit.forEach((level) => {
-      traces.push({
-        type: "scatter",
-        mode: "lines",
-        name: `${level.side} Limit (${level.count})`,
-        x: [xStart, xEnd],
-        y: [level.price, level.price],
-        line: {
-          color: level.side === "BUY" ? "rgba(37, 99, 235, 0.9)" : "rgba(249, 115, 22, 0.9)",
-          width: 1.25,
-          dash: "dot",
-        },
-      });
-    });
-    orderLevels.stopLoss.forEach((level) => {
-      traces.push({
-        type: "scatter",
-        mode: "lines",
-        name: `SL (${level.count})`,
-        x: [xStart, xEnd],
-        y: [level.price, level.price],
-        line: { color: "rgba(220, 38, 38, 0.85)", width: 1.1, dash: "dash" },
-      });
-    });
-    orderLevels.takeProfit.forEach((level) => {
-      traces.push({
-        type: "scatter",
-        mode: "lines",
-        name: `TP (${level.count})`,
-        x: [xStart, xEnd],
-        y: [level.price, level.price],
-        line: { color: "rgba(22, 163, 74, 0.85)", width: 1.1, dash: "dash" },
-      });
-    });
-    return traces;
-  }, [candleData, orderLevels]);
-
   const getTickerLivePrice = useCallback(
     (ticker) => {
       if (!ticker) return null;
@@ -3522,49 +3530,40 @@ function App() {
     if (!pair) return [];
 
     const levels = [];
-    if (pair.targetTicker === selectedTicker) {
-      const targetPrice = deriveMnaTargetPrice(pair, getTickerLivePrice(pair.acquirerTicker));
-      if (Number.isFinite(targetPrice)) {
-        levels.push({
-          price: targetPrice,
-          label: "Deal target",
-          color: "rgba(124, 58, 237, 0.9)",
-          style: "dash",
-        });
-      }
+    const acquirerAnchor = firstFinite(
+      getTickerLivePrice(pair.acquirerTicker),
+      getMnaStartingPrice(pair, pair.acquirerTicker)
+    );
+    const targetPrice = deriveMnaTargetPrice(pair, acquirerAnchor);
+    if (Number.isFinite(targetPrice)) {
+      levels.push({
+        price: targetPrice,
+        label: `${pair.targetTicker} deal value`,
+        color: "rgba(124, 58, 237, 0.92)",
+        style: "dash",
+      });
+    }
+    const startingPrice = getMnaStartingPrice(pair, selectedTicker);
+    if (Number.isFinite(startingPrice)) {
+      levels.push({
+        price: startingPrice,
+        label: `${selectedTicker} start`,
+        color: "rgba(14, 116, 144, 0.92)",
+        style: "dot",
+      });
     }
     const peerTicker = pair.targetTicker === selectedTicker ? pair.acquirerTicker : pair.targetTicker;
-    const peerPrice = getTickerLivePrice(peerTicker);
+    const peerPrice = firstFinite(getTickerLivePrice(peerTicker), getMnaStartingPrice(pair, peerTicker));
     if (Number.isFinite(peerPrice)) {
       levels.push({
         price: peerPrice,
-        label: `${peerTicker} ref`,
-        color: "rgba(71, 85, 105, 0.9)",
+        label: `${peerTicker} price`,
+        color: "rgba(51, 65, 85, 0.92)",
         style: "dot",
       });
     }
     return levels;
   }, [activeMnaPairs, getTickerLivePrice, isMergerArbCase, selectedTicker]);
-
-  const selectedMnaReferenceTraces = useMemo(() => {
-    if (!candleData?.x?.length) return [];
-    const xStart = candleData.x[0];
-    const xEnd = candleData.x[candleData.x.length - 1];
-    return selectedMnaReferenceLevels
-      .filter((level) => Number.isFinite(Number(level.price)))
-      .map((level) => ({
-        type: "scatter",
-        mode: "lines",
-        name: level.label || "Reference",
-        x: [xStart, xEnd],
-        y: [level.price, level.price],
-        line: {
-          color: level.color || "rgba(71, 85, 105, 0.9)",
-          width: 1.1,
-          dash: level.style === "dot" ? "dot" : level.style === "dash" ? "dash" : "solid",
-        },
-      }));
-  }, [candleData, selectedMnaReferenceLevels]);
 
   const indicatorTraces = useMemo(() => {
     if (!indicatorData) return [];
@@ -3635,99 +3634,6 @@ function App() {
   const chartTextColor = "#0f172a";
   const chartPlotBg = "#ffffff";
 
-  const chartData = candleData
-    ? [
-        {
-          type: "candlestick",
-          x: candleData.x,
-          open: candleData.open,
-          high: candleData.high,
-          low: candleData.low,
-          close: candleData.close,
-          increasing: { line: { color: "#2E8B57" } },
-          decreasing: { line: { color: "#C0392B" } },
-        },
-        ...(dealTrace ? [dealTrace] : []),
-        ...orderLevelTraces,
-        ...selectedMnaReferenceTraces,
-        ...(openFillPoints.length
-          ? [
-              {
-                type: "scatter",
-                mode: "markers",
-                name: "Position Open",
-                x: openFillPoints.map((fill) => fill.tick),
-                y: openFillPoints.map((fill) => fill.price),
-                marker: {
-                  size: 11,
-                  symbol: openFillPoints.map((fill) =>
-                    fill.side === "BUY" ? "triangle-up" : "triangle-down"
-                  ),
-                  color: openFillPoints.map((fill) =>
-                    fill.side === "BUY" ? "#22c55e" : "#ef4444"
-                  ),
-                  line: { width: 1.5, color: "rgba(15, 23, 42, 0.25)" },
-                },
-              },
-            ]
-          : []),
-        ...(closeFillPoints.length
-          ? [
-              {
-                type: "scatter",
-                mode: "markers",
-                name: "Position Close",
-                x: closeFillPoints.map((fill) => fill.tick),
-                y: closeFillPoints.map((fill) => fill.price),
-                marker: {
-                  size: 9,
-                  symbol: closeFillPoints.map((fill) =>
-                    fill.side === "BUY" ? "triangle-up" : "triangle-down"
-                  ),
-                  color: closeFillPoints.map((fill) =>
-                    fill.side === "BUY" ? "#22c55e" : "#ef4444"
-                  ),
-                  line: { width: 1.2, color: "rgba(15, 23, 42, 0.25)" },
-                  opacity: 0.85,
-                },
-              },
-            ]
-          : []),
-        ...indicatorTraces,
-      ]
-    : [];
-
-  const chartLayout = {
-    paper_bgcolor: "#ffffff",
-    plot_bgcolor: chartPlotBg,
-    margin: { l: 40, r: 20, t: 30, b: 30 },
-    dragmode: "zoom",
-    font: { color: chartTextColor },
-    xaxis: {
-      title: "Tick",
-      gridcolor: chartGridColor,
-      tickfont: { size: 10, color: chartTextColor },
-      rangeslider: { visible: showRangeSlider },
-    },
-    yaxis: {
-      title: "Price",
-      gridcolor: chartGridColor,
-      tickfont: { size: 10, color: chartTextColor },
-    },
-    ...(showOscillatorAxis
-      ? {
-          yaxis2: {
-            overlaying: "y",
-            side: "right",
-            showgrid: false,
-            tickfont: { size: 9, color: chartTextColor },
-          },
-        }
-      : {}),
-    uirevision: selectedTicker,
-    ...chartView,
-  };
-
   const chartConfig = {
     displayModeBar: true,
     responsive: true,
@@ -3795,10 +3701,6 @@ function App() {
     const isMarket =
       action === "BUY" ? normalizedPrice > liveMid : normalizedPrice < liveMid;
     await placeQuickOrder(ticker, action, normalizedPrice, isMarket, "chart");
-  };
-
-  const handleChartTradeIntent = async (button, clickedPrice) => {
-    await handleChartTradeIntentForTicker(selectedTicker, button, clickedPrice);
   };
 
   const buildHorizontalTraces = useCallback((xStart, xEnd, referenceLevels) => {
@@ -3883,30 +3785,41 @@ function App() {
   const renderMnaTickerChart = ({ pair, ticker, peerTicker }) => {
       const model = mnaChartModelsByTicker.get(ticker);
       const candlesForTicker = model?.candles || [];
-      const mnaChartHeight = orderbookDisplayMode === "graph" ? 430 : 320;
+      const mnaChartHeight = orderbookDisplayMode === "graph" ? 520 : 360;
       if (!candlesForTicker.length) {
         return <div className="muted">No candle history yet for {ticker}.</div>;
       }
 
       const referenceLevels = [];
-      if (ticker === pair.targetTicker) {
-        const targetPrice = deriveMnaTargetPrice(pair, getTickerLivePrice(pair.acquirerTicker));
-        if (Number.isFinite(targetPrice)) {
-          referenceLevels.push({
-            price: targetPrice,
-            label: "Deal target",
-            color: "rgba(124, 58, 237, 0.9)",
-            style: "dash",
-          });
-        }
+      const acquirerAnchor = firstFinite(
+        getTickerLivePrice(pair.acquirerTicker),
+        getMnaStartingPrice(pair, pair.acquirerTicker)
+      );
+      const targetPrice = deriveMnaTargetPrice(pair, acquirerAnchor);
+      if (Number.isFinite(targetPrice)) {
+        referenceLevels.push({
+          price: targetPrice,
+          label: `${pair.targetTicker} deal value`,
+          color: "rgba(124, 58, 237, 0.92)",
+          style: "dash",
+        });
+      }
+      const startingPrice = getMnaStartingPrice(pair, ticker);
+      if (Number.isFinite(startingPrice)) {
+        referenceLevels.push({
+          price: startingPrice,
+          label: `${ticker} start`,
+          color: "rgba(14, 116, 144, 0.92)",
+          style: "dot",
+        });
       }
       if (isMnaPeerPriceVisible(pair.id, ticker)) {
-        const peerPrice = getTickerLivePrice(peerTicker);
+        const peerPrice = firstFinite(getTickerLivePrice(peerTicker), getMnaStartingPrice(pair, peerTicker));
         if (Number.isFinite(peerPrice)) {
           referenceLevels.push({
             price: peerPrice,
             label: `${peerTicker} price`,
-            color: "rgba(71, 85, 105, 0.9)",
+            color: "rgba(51, 65, 85, 0.92)",
             style: "dot",
           });
         }
@@ -4290,208 +4203,424 @@ function App() {
   const showOrderbookPanels = !isGraphOnlyMode;
   const showCandlesPanel = true;
   const splitOrderbookLayout = showOrderbookPanels && !isMultiBook;
-  const chartPanelHeight = showOrderbookPanels ? (isMultiBook ? 320 : 420) : isMergerArbCase ? 420 : 620;
+  const chartPanelHeight = showOrderbookPanels
+    ? isMultiBook
+      ? 320
+      : 420
+    : isMergerArbCase
+      ? 560
+      : 660;
 
-  const renderChartPanel = (inline = false) => {
-    const chartBody = isMergerArbCase ? (
-      <MnaPairsSection
-        activePairIds={activeMnaPairIds}
-        pairOptions={MNA_CASE_PAIRS}
-        pairById={MNA_CASE_PAIR_BY_ID}
-        onAddPair={addMnaPair}
-        onRemovePair={removeMnaPairAt}
-        onChangePair={updateMnaPairAt}
-        canAddPair={canAddMnaPair}
-        isPairOptionDisabled={isMnaPairOptionDisabled}
-        isPeerPriceVisible={isMnaPeerPriceVisible}
-        onPeerPriceToggle={setMnaPeerPriceVisible}
-        renderTickerChart={renderMnaTickerChart}
-      />
-    ) : candles.length === 0 ? (
-      <div className="muted">No candle history yet.</div>
-    ) : (
-      <CandlesRenderer
-        renderer={chartRenderer}
-        candles={candles}
-        dealPoints={dealPoints}
-        openFillPoints={openFillPoints}
-        closeFillPoints={closeFillPoints}
-        limitLevels={orderLevels.limit}
-        stopLossLevels={orderLevels.stopLoss}
-        takeProfitLevels={orderLevels.takeProfit}
-        referenceLevels={selectedMnaReferenceLevels}
-        showRangeSlider={showRangeSlider}
-        theme={theme}
-        height={chartPanelHeight}
-        plotlyData={chartData}
-        plotlyLayout={chartLayout}
-        plotlyConfig={chartConfig}
-        onPlotlyRelayout={handlePlotlyRelayout}
-        onChartTradeIntent={handleChartTradeIntent}
-        chartTradingEnabled={Boolean(config && selectedTicker && chartMouseTrading)}
-      />
-    );
+  const buildTickerChartModel = useCallback(
+    (ticker, rows, includeDeals = false) => {
+      const tickerCandles = aggregateCandles(rows || [], CANDLE_BUCKET);
+      const markerSet = buildFillMarkersForTicker(fills, ticker);
+      const openPoints = markerSet.opens
+        .map((fill) => ({
+          tick: toBucketTick(Number(fill.tick)),
+          price: Number(fill.vwap ?? fill.price),
+          side: fill.action === "BUY" ? "BUY" : "SELL",
+        }))
+        .filter((fill) => Number.isFinite(fill.tick) && Number.isFinite(fill.price));
+      const closePoints = markerSet.closes
+        .map((fill) => ({
+          tick: toBucketTick(Number(fill.tick)),
+          price: Number(fill.vwap ?? fill.price),
+          side: fill.action === "BUY" ? "BUY" : "SELL",
+        }))
+        .filter((fill) => Number.isFinite(fill.tick) && Number.isFinite(fill.price));
+      const panelDeals = includeDeals
+        ? tasTrades
+            .map((trade) => ({
+              tick: toBucketTick(Number(trade.tick)),
+              price: Number(trade.price),
+            }))
+            .filter((trade) => Number.isFinite(trade.tick) && Number.isFinite(trade.price))
+        : [];
+      const decimals = decimalsByTicker.get(ticker) ?? 2;
+      const levels = buildOrderLevelsForTicker({
+        orders,
+        ticker,
+        decimals,
+      });
+      return {
+        candles: tickerCandles,
+        dealPoints: panelDeals,
+        openFillPoints: openPoints,
+        closeFillPoints: closePoints,
+        orderLevels: levels,
+      };
+    },
+    [decimalsByTicker, fills, orders, tasTrades]
+  );
+
+  const renderChartSettings = () => (
+    <div className="chart-settings">
+      <label className="chart-control">
+        <span>Renderer</span>
+        <select
+          value={chartRenderer}
+          onChange={(event) => setChartRenderer(event.target.value)}
+        >
+          {CANDLE_RENDERERS.map((renderer) => (
+            <option key={renderer.id} value={renderer.id}>
+              {renderer.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={showRangeSlider}
+          disabled={!chartRendererMeta.supportsRangeSlider}
+          onChange={(event) => setShowRangeSlider(event.target.checked)}
+        />
+        Enable range slider
+      </label>
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={chartMouseTrading}
+          onChange={(event) => setChartMouseTrading(event.target.checked)}
+        />
+        Enable chart mouse trading
+      </label>
+      <label className="chart-control chart-control--small">
+        <span>Quick Qty</span>
+        <input
+          type="number"
+          min="1"
+          step="1"
+          value={orderDraft.quantity}
+          onChange={(event) =>
+            setOrderDraft((prev) => ({
+              ...prev,
+              quantity: event.target.value,
+            }))
+          }
+        />
+      </label>
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={Boolean(bracketDefaults.enabled)}
+          onChange={(event) =>
+            setBracketDefaults((prev) => ({
+              ...prev,
+              enabled: event.target.checked,
+            }))
+          }
+        />
+        Apply default TP/SL to quick orders
+      </label>
+      <label className="chart-control chart-control--small">
+        <span>SL Offset</span>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={bracketDefaults.stopLossOffset}
+          disabled={!bracketDefaults.enabled}
+          onChange={(event) =>
+            setBracketDefaults((prev) => ({
+              ...prev,
+              stopLossOffset: event.target.value,
+            }))
+          }
+        />
+      </label>
+      <label className="chart-control chart-control--small">
+        <span>TP Offset</span>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={bracketDefaults.takeProfitOffset}
+          disabled={!bracketDefaults.enabled}
+          onChange={(event) =>
+            setBracketDefaults((prev) => ({
+              ...prev,
+              takeProfitOffset: event.target.value,
+            }))
+          }
+        />
+      </label>
+      <div className="muted chart-engine-hint">{chartRendererMeta.description}</div>
+      {!chartRendererMeta.supportsRangeSlider && (
+        <div className="muted chart-engine-hint">
+          Range slider is unavailable for this renderer.
+        </div>
+      )}
+      <div className="muted chart-engine-hint">
+        Chart trading: LMB = buy (below mid limit, above mid market), RMB = sell (above mid limit, below mid market).
+        {chartMouseTrading ? " Trading is active." : " Enable it before sending chart orders."}
+      </div>
+      {isMergerArbCase && (
+        <div className="muted chart-engine-hint">
+          Merger mode opens target/acquirer charts in pairs and draws deal and start-price lines for fast orientation.
+        </div>
+      )}
+      {chartRendererMeta.supportsIndicators ? (
+        <details className="indicator-menu">
+          <summary>Indicators ({INDICATORS.length})</summary>
+          <div className="indicator-list">
+            {INDICATORS.map((indicator) => (
+              <label key={indicator.id} className="indicator-row">
+                <input
+                  type="checkbox"
+                  checked={Boolean(indicatorState[indicator.id])}
+                  onChange={() =>
+                    setIndicatorState((prev) => ({
+                      ...prev,
+                      [indicator.id]: !prev[indicator.id],
+                    }))
+                  }
+                />
+                <span>{indicator.label}</span>
+                <button
+                  type="button"
+                  className="indicator-info"
+                  aria-label={`About ${indicator.label}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setIndicatorInfo(indicator);
+                  }}
+                >
+                  i
+                </button>
+              </label>
+            ))}
+          </div>
+        </details>
+      ) : (
+        <div className="muted chart-engine-hint">
+          Indicators are currently available only in the Plotly renderer.
+        </div>
+      )}
+    </div>
+  );
+
+  const renderChartPanel = ({
+    inline = false,
+    ticker = null,
+    title = null,
+    showSettingsToggle = true,
+  } = {}) => {
+    const showMnaWorkspace = isMergerArbCase && !ticker;
+    const activeTicker = ticker || selectedTicker;
+    const usingPrimaryTicker = !ticker || ticker === selectedTicker;
+
+    let chartBody = null;
+    let panelTitle = title || "Candles";
+    if (showMnaWorkspace) {
+      chartBody = (
+        <MnaPairsSection
+          activePairIds={activeMnaPairIds}
+          pairOptions={MNA_CASE_PAIRS}
+          pairById={MNA_CASE_PAIR_BY_ID}
+          onAddPair={addMnaPair}
+          onRemovePair={removeMnaPairAt}
+          onChangePair={updateMnaPairAt}
+          canAddPair={canAddMnaPair}
+          isPairOptionDisabled={isMnaPairOptionDisabled}
+          isPeerPriceVisible={isMnaPeerPriceVisible}
+          onPeerPriceToggle={setMnaPeerPriceVisible}
+          renderTickerChart={renderMnaTickerChart}
+          showChartSettings={showChartSettings}
+          onToggleChartSettings={() => setShowChartSettings((prev) => !prev)}
+        />
+      );
+    } else {
+      panelTitle = title || (activeTicker ? `${activeTicker} Candles` : "Candles");
+      const tickerRows = usingPrimaryTicker ? history : bookHistoryByTicker[activeTicker] || [];
+      const model = usingPrimaryTicker
+        ? {
+            candles,
+            dealPoints,
+            openFillPoints,
+            closeFillPoints,
+            orderLevels,
+          }
+        : buildTickerChartModel(activeTicker, tickerRows, false);
+
+      if (!model.candles.length) {
+        chartBody = <div className="muted">No candle history yet for {activeTicker || "ticker"}.</div>;
+      } else {
+        const referenceLevels = usingPrimaryTicker ? selectedMnaReferenceLevels : [];
+        const ticks = model.candles.map((candle) => candle.tick);
+        const xStart = ticks[0];
+        const xEnd = ticks[ticks.length - 1];
+        const orderLines = [
+          ...model.orderLevels.limit.map((level) => ({
+            price: level.price,
+            label: level.side === "BUY" ? `LMT B (${level.count})` : `LMT S (${level.count})`,
+            color: level.side === "BUY" ? "rgba(37, 99, 235, 0.9)" : "rgba(249, 115, 22, 0.9)",
+            style: "dot",
+            width: 1.25,
+          })),
+          ...model.orderLevels.stopLoss.map((level) => ({
+            price: level.price,
+            label: `SL (${level.count})`,
+            color: "rgba(220, 38, 38, 0.85)",
+            style: "dash",
+          })),
+          ...model.orderLevels.takeProfit.map((level) => ({
+            price: level.price,
+            label: `TP (${level.count})`,
+            color: "rgba(22, 163, 74, 0.85)",
+            style: "dash",
+          })),
+        ];
+
+        const panelPlotlyData = [
+          {
+            type: "candlestick",
+            x: ticks,
+            open: model.candles.map((candle) => candle.open),
+            high: model.candles.map((candle) => candle.high),
+            low: model.candles.map((candle) => candle.low),
+            close: model.candles.map((candle) => candle.close),
+            increasing: { line: { color: "#2E8B57" } },
+            decreasing: { line: { color: "#C0392B" } },
+          },
+          ...(model.dealPoints.length
+            ? [
+                {
+                  type: "scatter",
+                  mode: "markers",
+                  name: "Deals",
+                  x: model.dealPoints.map((point) => point.tick),
+                  y: model.dealPoints.map((point) => point.price),
+                  marker: { size: 4, color: "rgba(148, 163, 184, 0.55)" },
+                },
+              ]
+            : []),
+          ...buildHorizontalTraces(xStart, xEnd, orderLines),
+          ...buildHorizontalTraces(xStart, xEnd, referenceLevels),
+          ...(model.openFillPoints.length
+            ? [
+                {
+                  type: "scatter",
+                  mode: "markers",
+                  name: "Position Open",
+                  x: model.openFillPoints.map((fill) => fill.tick),
+                  y: model.openFillPoints.map((fill) => fill.price),
+                  marker: {
+                    size: 11,
+                    symbol: model.openFillPoints.map((fill) =>
+                      fill.side === "BUY" ? "triangle-up" : "triangle-down"
+                    ),
+                    color: model.openFillPoints.map((fill) =>
+                      fill.side === "BUY" ? "#22c55e" : "#ef4444"
+                    ),
+                    line: { width: 1.5, color: "rgba(15, 23, 42, 0.25)" },
+                  },
+                },
+              ]
+            : []),
+          ...(model.closeFillPoints.length
+            ? [
+                {
+                  type: "scatter",
+                  mode: "markers",
+                  name: "Position Close",
+                  x: model.closeFillPoints.map((fill) => fill.tick),
+                  y: model.closeFillPoints.map((fill) => fill.price),
+                  marker: {
+                    size: 9,
+                    symbol: model.closeFillPoints.map((fill) =>
+                      fill.side === "BUY" ? "triangle-up" : "triangle-down"
+                    ),
+                    color: model.closeFillPoints.map((fill) =>
+                      fill.side === "BUY" ? "#22c55e" : "#ef4444"
+                    ),
+                    line: { width: 1.2, color: "rgba(15, 23, 42, 0.25)" },
+                    opacity: 0.85,
+                  },
+                },
+              ]
+            : []),
+          ...(usingPrimaryTicker ? indicatorTraces : []),
+        ];
+
+        const panelPlotlyLayout = {
+          paper_bgcolor: "#ffffff",
+          plot_bgcolor: chartPlotBg,
+          margin: { l: 40, r: 20, t: 30, b: 30 },
+          dragmode: "zoom",
+          font: { color: chartTextColor },
+          xaxis: {
+            title: "Tick",
+            gridcolor: chartGridColor,
+            tickfont: { size: 10, color: chartTextColor },
+            rangeslider: { visible: showRangeSlider },
+          },
+          yaxis: {
+            title: "Price",
+            gridcolor: chartGridColor,
+            tickfont: { size: 10, color: chartTextColor },
+          },
+          ...(usingPrimaryTicker && showOscillatorAxis
+            ? {
+                yaxis2: {
+                  overlaying: "y",
+                  side: "right",
+                  showgrid: false,
+                  tickfont: { size: 9, color: chartTextColor },
+                },
+              }
+            : {}),
+          uirevision: activeTicker,
+          ...(usingPrimaryTicker ? chartView : {}),
+        };
+
+        chartBody = (
+          <CandlesRenderer
+            renderer={chartRenderer}
+            candles={model.candles}
+            dealPoints={model.dealPoints}
+            openFillPoints={model.openFillPoints}
+            closeFillPoints={model.closeFillPoints}
+            limitLevels={model.orderLevels.limit}
+            stopLossLevels={model.orderLevels.stopLoss}
+            takeProfitLevels={model.orderLevels.takeProfit}
+            referenceLevels={referenceLevels}
+            showRangeSlider={showRangeSlider}
+            theme={theme}
+            height={chartPanelHeight}
+            plotlyData={panelPlotlyData}
+            plotlyLayout={panelPlotlyLayout}
+            plotlyConfig={chartConfig}
+            onPlotlyRelayout={usingPrimaryTicker ? handlePlotlyRelayout : undefined}
+            onChartTradeIntent={(button, price) =>
+              handleChartTradeIntentForTicker(activeTicker, button, price)
+            }
+            chartTradingEnabled={Boolean(config && activeTicker && chartMouseTrading)}
+          />
+        );
+      }
+    }
 
     return (
       <div className={`orderbook-candles ${inline ? "orderbook-candles--inline" : ""}`}>
-        <div className="card-title chart-header">
-          <span>{isMergerArbCase ? "Merger Pair Candles" : "Candles"}</span>
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => setShowChartSettings((prev) => !prev)}
-          >
-            Chart Settings
-          </button>
-        </div>
-        {chartBody}
-        {showChartSettings && (
-          <div className="chart-settings">
-            <label className="chart-control">
-              <span>Renderer</span>
-              <select
-                value={chartRenderer}
-                onChange={(event) => setChartRenderer(event.target.value)}
+        {!showMnaWorkspace && (
+          <div className="card-title chart-header">
+            <span>{panelTitle}</span>
+            {showSettingsToggle && (
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => setShowChartSettings((prev) => !prev)}
               >
-                {CANDLE_RENDERERS.map((renderer) => (
-                  <option key={renderer.id} value={renderer.id}>
-                    {renderer.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={showRangeSlider}
-                disabled={!chartRendererMeta.supportsRangeSlider}
-                onChange={(event) => setShowRangeSlider(event.target.checked)}
-              />
-              Enable range slider
-            </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={chartMouseTrading}
-                onChange={(event) => setChartMouseTrading(event.target.checked)}
-              />
-              Enable chart mouse trading
-            </label>
-            <label className="chart-control chart-control--small">
-              <span>Quick Qty</span>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={orderDraft.quantity}
-                onChange={(event) =>
-                  setOrderDraft((prev) => ({
-                    ...prev,
-                    quantity: event.target.value,
-                  }))
-                }
-              />
-            </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={Boolean(bracketDefaults.enabled)}
-                onChange={(event) =>
-                  setBracketDefaults((prev) => ({
-                    ...prev,
-                    enabled: event.target.checked,
-                  }))
-                }
-              />
-              Apply default TP/SL to quick orders
-            </label>
-            <label className="chart-control chart-control--small">
-              <span>SL Offset</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={bracketDefaults.stopLossOffset}
-                disabled={!bracketDefaults.enabled}
-                onChange={(event) =>
-                  setBracketDefaults((prev) => ({
-                    ...prev,
-                    stopLossOffset: event.target.value,
-                  }))
-                }
-              />
-            </label>
-            <label className="chart-control chart-control--small">
-              <span>TP Offset</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={bracketDefaults.takeProfitOffset}
-                disabled={!bracketDefaults.enabled}
-                onChange={(event) =>
-                  setBracketDefaults((prev) => ({
-                    ...prev,
-                    takeProfitOffset: event.target.value,
-                  }))
-                }
-              />
-            </label>
-            <div className="muted chart-engine-hint">{chartRendererMeta.description}</div>
-            {!chartRendererMeta.supportsRangeSlider && (
-              <div className="muted chart-engine-hint">
-                Range slider is unavailable for this renderer.
-              </div>
-            )}
-            <div className="muted chart-engine-hint">
-              Chart trading: LMB = buy (below mid limit, above mid market), RMB = sell (above mid limit, below mid market).
-              {chartMouseTrading ? " Trading is active." : " Enable it before sending chart orders."}
-            </div>
-            {isMergerArbCase && (
-              <div className="muted chart-engine-hint">
-                Merger mode opens target/acquirer charts in pairs and draws deal target levels on target-company charts.
-              </div>
-            )}
-            {chartRendererMeta.supportsIndicators ? (
-              <details className="indicator-menu">
-                <summary>Indicators ({INDICATORS.length})</summary>
-                <div className="indicator-list">
-                  {INDICATORS.map((indicator) => (
-                    <label key={indicator.id} className="indicator-row">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(indicatorState[indicator.id])}
-                        onChange={() =>
-                          setIndicatorState((prev) => ({
-                            ...prev,
-                            [indicator.id]: !prev[indicator.id],
-                          }))
-                        }
-                      />
-                      <span>{indicator.label}</span>
-                      <button
-                        type="button"
-                        className="indicator-info"
-                        aria-label={`About ${indicator.label}`}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setIndicatorInfo(indicator);
-                        }}
-                      >
-                        i
-                      </button>
-                    </label>
-                  ))}
-                </div>
-              </details>
-            ) : (
-              <div className="muted chart-engine-hint">
-                Indicators are currently available only in the Plotly renderer.
-              </div>
+                Chart Settings
+              </button>
             )}
           </div>
         )}
+        {chartBody}
+        {showChartSettings && renderChartSettings()}
       </div>
     );
   };

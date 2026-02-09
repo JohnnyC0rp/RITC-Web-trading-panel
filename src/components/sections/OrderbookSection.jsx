@@ -394,7 +394,25 @@ export default function OrderbookSection({
           </div>
         )}
 
-        {showCandlesPanel && renderChartPanel(showOrderbookPanels && isMultiBook)}
+        {showCandlesPanel &&
+          (showOrderbookPanels && isMultiBook ? (
+            <div className="multibook-candles-grid">
+              {bookStates.map(({ panel }) =>
+                panel.ticker ? (
+                  <div key={`${panel.id}-candles`} className="multibook-candles-item">
+                    {renderChartPanel({
+                      inline: true,
+                      ticker: panel.ticker,
+                      title: `${panel.ticker} Candles`,
+                      showSettingsToggle: panel.id === bookPanelPrimaryId,
+                    })}
+                  </div>
+                ) : null
+              )}
+            </div>
+          ) : (
+            renderChartPanel({ inline: false })
+          ))}
       </div>
     </section>
   );

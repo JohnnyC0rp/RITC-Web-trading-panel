@@ -170,6 +170,34 @@ export default function LightweightCandles({
         .filter(Boolean),
     ];
 
+    const referencePrices = [
+      ...limitLevels.map((level) => Number(level.price)),
+      ...stopLossLevels.map((level) => Number(level.price)),
+      ...takeProfitLevels.map((level) => Number(level.price)),
+      ...referenceLevels.map((level) => Number(level.price)),
+    ].filter((price) => Number.isFinite(price));
+    if (referencePrices.length) {
+      const candleLow = Math.min(...candleSeriesData.map((point) => Number(point.low)));
+      const candleHigh = Math.max(...candleSeriesData.map((point) => Number(point.high)));
+      const minBound = Math.min(candleLow, ...referencePrices);
+      const maxBound = Math.max(candleHigh, ...referencePrices);
+      candleSeries.applyOptions({
+        autoscaleInfoProvider: (baseImplementation) => {
+          const baseInfo =
+            typeof baseImplementation === "function" ? baseImplementation() : null;
+          const baseMin = Number(baseInfo?.priceRange?.minValue);
+          const baseMax = Number(baseInfo?.priceRange?.maxValue);
+          return {
+            ...(baseInfo || {}),
+            priceRange: {
+              minValue: Number.isFinite(baseMin) ? Math.min(baseMin, minBound) : minBound,
+              maxValue: Number.isFinite(baseMax) ? Math.max(baseMax, maxBound) : maxBound,
+            },
+          };
+        },
+      });
+    }
+
     chart.timeScale().fitContent();
 
     const toPrice = (clientY) => {

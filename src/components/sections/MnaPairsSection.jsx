@@ -16,13 +16,19 @@ export default function MnaPairsSection({
   isPeerPriceVisible,
   onPeerPriceToggle,
   renderTickerChart,
+  showChartSettings,
+  onToggleChartSettings,
 }) {
   return (
     <div className="mna-pairs">
       <div className="mna-pairs-toolbar">
-        <div className="muted">
-          Merger pairs from the RITC 2026 case package. Each pair opens target and acquirer charts side by side.
+        <strong className="mna-toolbar-title">Merger Pair Candles</strong>
+        <div className="muted mna-toolbar-note">
+          RITC 2026 merger pairs with deal-value and start-price reference lines.
         </div>
+        <button type="button" className="ghost small" onClick={onToggleChartSettings}>
+          {showChartSettings ? "Hide Settings" : "Chart Settings"}
+        </button>
         <button type="button" className="ghost small" onClick={onAddPair} disabled={!canAddPair}>
           Add Pair
         </button>
