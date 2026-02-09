@@ -18,7 +18,6 @@ export default function HighchartsCandles({
   theme,
   height,
   autoScale = false,
-  lockedYRange = null,
 }) {
   const options = useMemo(() => {
     const palette = getChartPalette(theme);
@@ -55,15 +54,14 @@ export default function HighchartsCandles({
       Number.isFinite(minValue) && Number.isFinite(maxValue)
         ? [minValue - padding, maxValue + padding]
         : null;
-    const yRange =
-      !autoScale && Array.isArray(lockedYRange) ? lockedYRange : dynamicYRange;
+    const yRange = autoScale ? dynamicYRange : null;
 
     return {
       chart: {
         height,
         backgroundColor: palette.background,
-        panning: { enabled: true, type: "x" },
-        zooming: { mouseWheel: { enabled: true }, type: "x" },
+        panning: { enabled: true, type: "xy" },
+        zooming: { mouseWheel: { enabled: true }, type: "xy" },
       },
       title: { text: null },
       credits: { enabled: false },
@@ -238,7 +236,6 @@ export default function HighchartsCandles({
     takeProfitLevels,
     theme,
     autoScale,
-    lockedYRange,
   ]);
 
   return (

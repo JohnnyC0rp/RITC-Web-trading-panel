@@ -3705,6 +3705,25 @@ function App() {
     });
   }, []);
 
+  const updatePlotlyScaleLock = useCallback(
+    (scaleKey, ev) => {
+      if (autoScaleCharts || !scaleKey || !ev) return;
+      if (ev["yaxis.autorange"]) {
+        plotlyYRangeLocksRef.current.delete(scaleKey);
+        return;
+      }
+      const directRange = Array.isArray(ev["yaxis.range"]) ? ev["yaxis.range"] : null;
+      const y0 = Number(directRange?.[0] ?? ev["yaxis.range[0]"]);
+      const y1 = Number(directRange?.[1] ?? ev["yaxis.range[1]"]);
+      if (!Number.isFinite(y0) || !Number.isFinite(y1)) return;
+      const min = Math.min(y0, y1);
+      const max = Math.max(y0, y1);
+      if (max - min <= 0) return;
+      plotlyYRangeLocksRef.current.set(scaleKey, [min, max]);
+    },
+    [autoScaleCharts]
+  );
+
   useEffect(() => {
     if (autoScaleCharts) {
       plotlyYRangeLocksRef.current.clear();
@@ -3917,8 +3936,9 @@ function App() {
           style: "dash",
         })),
       ];
+      const mnaScaleKey = `mna:${pair.id}:${ticker}`;
       const yAxisScaleConfig = resolvePlotlyYAxisConfig(
-        `mna:${pair.id}:${ticker}`,
+        mnaScaleKey,
         candlesForTicker,
         [orderLines, referenceLevels],
         [model.dealPoints, model.openFillPoints, model.closeFillPoints]
@@ -4033,7 +4053,7 @@ function App() {
           plotlyLayout={plotlyLayoutForPair}
           plotlyConfig={chartConfig}
           autoScale={autoScaleCharts}
-          lockedYRange={yAxisScaleConfig.range || null}
+          onPlotlyRelayout={(ev) => updatePlotlyScaleLock(mnaScaleKey, ev)}
           onChartTradeIntent={(button, price) =>
             handleChartTradeIntentForTicker(ticker, button, price)
           }
@@ -4558,8 +4578,9 @@ function App() {
             style: "dash",
           })),
         ];
+        const panelScaleKey = `panel:${activeTicker || "none"}`;
         const yAxisScaleConfig = resolvePlotlyYAxisConfig(
-          `panel:${activeTicker || "none"}`,
+          panelScaleKey,
           model.candles,
           [orderLines, referenceLevels],
           [model.dealPoints, model.openFillPoints, model.closeFillPoints]
@@ -4686,8 +4707,10 @@ function App() {
             plotlyLayout={panelPlotlyLayout}
             plotlyConfig={chartConfig}
             autoScale={autoScaleCharts}
-            lockedYRange={yAxisScaleConfig.range || null}
-            onPlotlyRelayout={usingPrimaryTicker ? handlePlotlyRelayout : undefined}
+            onPlotlyRelayout={(ev) => {
+              updatePlotlyScaleLock(panelScaleKey, ev);
+              if (usingPrimaryTicker) handlePlotlyRelayout(ev);
+            }}
             onChartTradeIntent={(button, price) =>
               handleChartTradeIntentForTicker(activeTicker, button, price)
             }

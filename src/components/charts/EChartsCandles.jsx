@@ -17,7 +17,6 @@ export default function EChartsCandles({
   theme,
   height,
   autoScale = false,
-  lockedYRange = null,
 }) {
   const option = useMemo(() => {
     const palette = getChartPalette(theme);
@@ -85,8 +84,7 @@ export default function EChartsCandles({
       Number.isFinite(minValue) && Number.isFinite(maxValue)
         ? [minValue - padding, maxValue + padding]
         : null;
-    const yRange =
-      !autoScale && Array.isArray(lockedYRange) ? lockedYRange : dynamicYRange;
+    const yRange = autoScale ? dynamicYRange : null;
     return {
       animation: false,
       backgroundColor: palette.background,
@@ -120,15 +118,20 @@ export default function EChartsCandles({
       },
       dataZoom: showRangeSlider
         ? [
-            { type: "inside" },
+            { type: "inside", xAxisIndex: [0] },
+            { type: "inside", yAxisIndex: [0] },
             {
               type: "slider",
+              xAxisIndex: [0],
               bottom: 12,
               borderColor: palette.border,
               textStyle: { color: palette.text },
             },
           ]
-        : [{ type: "inside" }],
+        : [
+            { type: "inside", xAxisIndex: [0] },
+            { type: "inside", yAxisIndex: [0] },
+          ],
       series: [
         {
           name: "Candles",
@@ -223,14 +226,13 @@ export default function EChartsCandles({
     takeProfitLevels,
     theme,
     autoScale,
-    lockedYRange,
   ]);
 
   return (
     <ReactECharts
       option={option}
       style={{ width: "100%", height: `${height}px`, background: "#ffffff" }}
-      notMerge
+      notMerge={false}
       lazyUpdate
       opts={{ renderer: "canvas" }}
     />

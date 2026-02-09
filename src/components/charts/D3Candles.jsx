@@ -20,10 +20,10 @@ export default function D3Candles({
   theme,
   height,
   autoScale = false,
-  lockedYRange = null,
 }) {
   const wrapRef = useRef(null);
   const svgRef = useRef(null);
+  const [manualYDomain, setManualYDomain] = useState(null);
   const [width, setWidth] = useState(0);
 
   useEffect(() => {
@@ -54,7 +54,7 @@ export default function D3Candles({
     const yPad = (yMax - yMin || 1) * 0.06;
     const dynamicRange = [yMin - yPad, yMax + yPad];
     const [rangeMin, rangeMax] =
-      !autoScale && Array.isArray(lockedYRange) ? lockedYRange : dynamicRange;
+      !autoScale && Array.isArray(manualYDomain) ? manualYDomain : dynamicRange;
 
     const x = d3
       .scaleBand()
@@ -246,11 +246,43 @@ export default function D3Candles({
     theme,
     width,
     autoScale,
-    lockedYRange,
+    manualYDomain,
   ]);
 
+  const handleWheel = (event) => {
+    if (autoScale || !candles.length) return;
+    const container = wrapRef.current;
+    if (!container) return;
+    event.preventDefault();
+
+    const margin = { top: 20, right: 20, bottom: 30, left: 45 };
+    const innerHeight = Math.max(10, height - margin.top - margin.bottom);
+    const rect = container.getBoundingClientRect();
+    const y = event.clientY - rect.top;
+    if (y < margin.top || y > margin.top + innerHeight) return;
+
+    const yMin = d3.min(candles, (candle) => candle.low);
+    const yMax = d3.max(candles, (candle) => candle.high);
+    const yPad = (yMax - yMin || 1) * 0.06;
+    const dynamicRange = [yMin - yPad, yMax + yPad];
+    const currentRange = Array.isArray(manualYDomain) ? manualYDomain : dynamicRange;
+    const [currentMin, currentMax] = currentRange;
+    const ratio = 1 - (y - margin.top) / innerHeight;
+    const pivot = currentMin + ratio * (currentMax - currentMin);
+    const zoom = event.deltaY > 0 ? 1.1 : 0.9;
+    const nextMin = pivot + (currentMin - pivot) * zoom;
+    const nextMax = pivot + (currentMax - pivot) * zoom;
+    if (!Number.isFinite(nextMin) || !Number.isFinite(nextMax) || nextMax <= nextMin) return;
+    setManualYDomain([nextMin, nextMax]);
+  };
+
   return (
-    <div ref={wrapRef} style={{ width: "100%", height: `${height}px` }}>
+    <div
+      ref={wrapRef}
+      style={{ width: "100%", height: `${height}px` }}
+      onWheel={handleWheel}
+      onDoubleClick={() => setManualYDomain(null)}
+    >
       <svg ref={svgRef} />
     </div>
   );

@@ -24,7 +24,6 @@ export default function CandlesRenderer({
   onChartTradeIntent,
   chartTradingEnabled,
   autoScale,
-  lockedYRange,
 }) {
   if (renderer === "lightweight") {
     return (
@@ -61,7 +60,6 @@ export default function CandlesRenderer({
         theme={theme}
         height={height}
         autoScale={autoScale}
-        lockedYRange={lockedYRange}
       />
     );
   }
@@ -81,7 +79,6 @@ export default function CandlesRenderer({
         theme={theme}
         height={height}
         autoScale={autoScale}
-        lockedYRange={lockedYRange}
       />
     );
   }
@@ -100,7 +97,6 @@ export default function CandlesRenderer({
         theme={theme}
         height={height}
         autoScale={autoScale}
-        lockedYRange={lockedYRange}
       />
     );
   }
