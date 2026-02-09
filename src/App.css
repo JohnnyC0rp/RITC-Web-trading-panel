@@ -1460,7 +1460,7 @@ button.full {
 
 .mna-pairs-toolbar {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
 }
@@ -1475,6 +1475,36 @@ button.full {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.chart-view-root {
+  display: grid;
+  gap: 12px;
+}
+
+.chart-view-title {
+  margin-bottom: 0;
+}
+
+.chart-view-subsection {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.chart-view-subsection-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.chart-view-subsection-note {
+  font-size: 0.78rem;
 }
 
 .mna-pairs-list {
@@ -2126,6 +2156,10 @@ button.full {
   color: #94a3b8;
 }
 
+.app[data-theme="dark"] .tender-title {
+  color: #e2e8f0;
+}
+
 .app[data-theme="dark"] .status-pill {
   background: rgba(148, 163, 184, 0.15);
 }
@@ -2204,11 +2238,12 @@ button.full {
 }
 
 .app[data-theme="dark"] .chart-settings {
-  background: #ffffff;
+  background: rgba(2, 6, 23, 0.85);
+  border-color: rgba(148, 163, 184, 0.25);
 }
 
 .app[data-theme="dark"] .chart-control {
-  color: #475569;
+  color: #cbd5e1;
 }
 
 .app[data-theme="dark"] .segmented {
@@ -2342,6 +2377,11 @@ button.full {
 .app[data-theme="dark"] .mna-chart-panel {
   background: rgba(15, 23, 42, 0.75);
   border-color: rgba(148, 163, 184, 0.25);
+}
+
+.app[data-theme="dark"] .chart-view-subsection {
+  background: rgba(2, 6, 23, 0.85);
+  border-color: rgba(148, 163, 184, 0.24);
 }
 
 .app[data-theme="dark"] .terminal-metric-row {

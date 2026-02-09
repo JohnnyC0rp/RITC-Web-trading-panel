@@ -70,6 +70,7 @@ const POLL_INTERVALS_MS = {
 const NEWS_TTL_MS = 10000;
 const BOOK_PANEL_PRIMARY_ID = "primary";
 const MAX_BOOK_PANELS = 4;
+const MAX_MNA_PAIR_PANELS = 12;
 const MAX_PERF_POINTS = 80;
 const FAST_POLL_ENDPOINTS = [
   { key: "GET /securities/book", label: "Order Book", pollMs: POLL_INTERVALS_MS.book },
@@ -1065,7 +1066,7 @@ function App() {
   const [chartView, setChartView] = useState({});
   const [chartRenderer, setChartRenderer] = useState(DEFAULT_CANDLE_RENDERER);
   const [showChartSettings, setShowChartSettings] = useState(false);
-  const [chartMouseTrading, setChartMouseTrading] = useState(false);
+  const [chartMouseTrading, setChartMouseTrading] = useState(true);
   const [showRangeSlider, setShowRangeSlider] = useState(false);
   const [indicatorState, setIndicatorState] = useState(INDICATOR_DEFAULTS);
   const [indicatorInfo, setIndicatorInfo] = useState(null);
@@ -1398,19 +1399,17 @@ function App() {
     [activeMnaPairIds]
   );
 
-  const canAddMnaPair = activeMnaPairIds.length < MNA_CASE_PAIRS.length;
+  const canAddMnaPair = activeMnaPairIds.length < MAX_MNA_PAIR_PANELS;
 
   const addMnaPair = useCallback(() => {
     setMnaPairIds((prev) => {
       const sanitized = sanitizeMnaPairIds(prev);
-      if (sanitized.length >= MNA_CASE_PAIRS.length) {
-        notify("All M&A pairs are already open.", "info");
+      if (sanitized.length >= MAX_MNA_PAIR_PANELS) {
+        notify(`Max ${MAX_MNA_PAIR_PANELS} pair panels reached.`, "info");
         return sanitized;
       }
-      const used = new Set(sanitized);
-      const nextPair = MNA_CASE_PAIRS.find((pair) => !used.has(pair.id));
-      if (!nextPair) return sanitized;
-      return [...sanitized, nextPair.id];
+      const nextPair = MNA_CASE_PAIRS[sanitized.length % MNA_CASE_PAIRS.length];
+      return nextPair ? [...sanitized, nextPair.id] : sanitized;
     });
   }, [notify]);
 
@@ -1421,7 +1420,7 @@ function App() {
       const next = [...sanitized];
       if (index < 0 || index >= next.length) return sanitized;
       next[index] = nextPairId;
-      return sanitizeMnaPairIds(next);
+      return next;
     });
   }, []);
 
@@ -1439,16 +1438,10 @@ function App() {
     [notify]
   );
 
-  const isMnaPairOptionDisabled = useCallback(
-    (index, pairId) => {
-      return activeMnaPairIds.some((openPairId, openIndex) => openPairId === pairId && openIndex !== index);
-    },
-    [activeMnaPairIds]
-  );
-
   const isMnaPeerPriceVisible = useCallback(
     (pairId, ticker) => {
       const key = buildMnaPeerVisibilityKey(pairId, ticker);
+      if (!Object.prototype.hasOwnProperty.call(mnaPeerPriceVisibility, key)) return true;
       return Boolean(mnaPeerPriceVisibility[key]);
     },
     [mnaPeerPriceVisibility]
@@ -2731,8 +2724,8 @@ function App() {
             : Number.isFinite(ask)
               ? ask
               : null;
-    const slOffset = Number(bracketDefaults.stopLossOffset);
-    const tpOffset = Number(bracketDefaults.takeProfitOffset);
+    const slPercent = Number(bracketDefaults.stopLossOffset);
+    const tpPercent = Number(bracketDefaults.takeProfitOffset);
     try {
       const payload = {
         ticker,
@@ -2747,15 +2740,21 @@ function App() {
       const hasDefaultBracket =
         bracketDefaults.enabled &&
         Number.isFinite(referencePrice) &&
-        Number.isFinite(slOffset) &&
-        Number.isFinite(tpOffset) &&
-        slOffset > 0 &&
-        tpOffset > 0;
+        Number.isFinite(slPercent) &&
+        Number.isFinite(tpPercent) &&
+        slPercent > 0 &&
+        tpPercent > 0;
       if (hasDefaultBracket) {
+        const slFactor = slPercent / 100;
+        const tpFactor = tpPercent / 100;
         const stopLoss =
-          side === "BUY" ? referencePrice - slOffset : referencePrice + slOffset;
+          side === "BUY"
+            ? referencePrice * (1 - slFactor)
+            : referencePrice * (1 + slFactor);
         const takeProfit =
-          side === "BUY" ? referencePrice + tpOffset : referencePrice - tpOffset;
+          side === "BUY"
+            ? referencePrice * (1 + tpFactor)
+            : referencePrice * (1 - tpFactor);
         payload.stop_loss = roundPrice(stopLoss);
         payload.take_profit = roundPrice(takeProfit);
       }
@@ -3529,40 +3528,34 @@ function App() {
     );
     if (!pair) return [];
 
-    const levels = [];
     const acquirerAnchor = firstFinite(
       getTickerLivePrice(pair.acquirerTicker),
       getMnaStartingPrice(pair, pair.acquirerTicker)
     );
     const targetPrice = deriveMnaTargetPrice(pair, acquirerAnchor);
-    if (Number.isFinite(targetPrice)) {
-      levels.push({
-        price: targetPrice,
-        label: `${pair.targetTicker} deal value`,
-        color: "rgba(124, 58, 237, 0.92)",
-        style: "dash",
-      });
-    }
     const startingPrice = getMnaStartingPrice(pair, selectedTicker);
-    if (Number.isFinite(startingPrice)) {
-      levels.push({
-        price: startingPrice,
-        label: `${selectedTicker} start`,
-        color: "rgba(14, 116, 144, 0.92)",
-        style: "dot",
-      });
-    }
-    const peerTicker = pair.targetTicker === selectedTicker ? pair.acquirerTicker : pair.targetTicker;
-    const peerPrice = firstFinite(getTickerLivePrice(peerTicker), getMnaStartingPrice(pair, peerTicker));
-    if (Number.isFinite(peerPrice)) {
-      levels.push({
-        price: peerPrice,
-        label: `${peerTicker} price`,
-        color: "rgba(51, 65, 85, 0.92)",
-        style: "dot",
-      });
-    }
-    return levels;
+    return [
+      ...(Number.isFinite(targetPrice)
+        ? [
+            {
+              price: targetPrice,
+              label: `${pair.targetTicker} deal value`,
+              color: "rgba(124, 58, 237, 0.92)",
+              style: "dash",
+            },
+          ]
+        : []),
+      ...(Number.isFinite(startingPrice)
+        ? [
+            {
+              price: startingPrice,
+              label: `${selectedTicker} start`,
+              color: "rgba(14, 116, 144, 0.92)",
+              style: "dot",
+            },
+          ]
+        : []),
+    ];
   }, [activeMnaPairs, getTickerLivePrice, isMergerArbCase, selectedTicker]);
 
   const indicatorTraces = useMemo(() => {
@@ -3630,9 +3623,10 @@ function App() {
     [chartRenderer]
   );
 
-  const chartGridColor = "rgba(15, 23, 42, 0.12)";
-  const chartTextColor = "#0f172a";
-  const chartPlotBg = "#ffffff";
+  const chartGridColor =
+    theme === "dark" ? "rgba(148, 163, 184, 0.22)" : "rgba(15, 23, 42, 0.12)";
+  const chartTextColor = theme === "dark" ? "#e2e8f0" : "#0f172a";
+  const chartPlotBg = theme === "dark" ? "#000000" : "#ffffff";
 
   const chartConfig = {
     displayModeBar: true,
@@ -3782,7 +3776,7 @@ function App() {
     tasTrades,
   ]);
 
-  const renderMnaTickerChart = ({ pair, ticker, peerTicker }) => {
+  const renderMnaTickerChart = ({ pair, ticker }) => {
       const model = mnaChartModelsByTicker.get(ticker);
       const candlesForTicker = model?.candles || [];
       const mnaChartHeight = orderbookDisplayMode === "graph" ? 520 : 360;
@@ -3791,35 +3785,26 @@ function App() {
       }
 
       const referenceLevels = [];
-      const acquirerAnchor = firstFinite(
-        getTickerLivePrice(pair.acquirerTicker),
-        getMnaStartingPrice(pair, pair.acquirerTicker)
-      );
-      const targetPrice = deriveMnaTargetPrice(pair, acquirerAnchor);
-      if (Number.isFinite(targetPrice)) {
-        referenceLevels.push({
-          price: targetPrice,
-          label: `${pair.targetTicker} deal value`,
-          color: "rgba(124, 58, 237, 0.92)",
-          style: "dash",
-        });
-      }
-      const startingPrice = getMnaStartingPrice(pair, ticker);
-      if (Number.isFinite(startingPrice)) {
-        referenceLevels.push({
-          price: startingPrice,
-          label: `${ticker} start`,
-          color: "rgba(14, 116, 144, 0.92)",
-          style: "dot",
-        });
-      }
       if (isMnaPeerPriceVisible(pair.id, ticker)) {
-        const peerPrice = firstFinite(getTickerLivePrice(peerTicker), getMnaStartingPrice(pair, peerTicker));
-        if (Number.isFinite(peerPrice)) {
+        const acquirerAnchor = firstFinite(
+          getTickerLivePrice(pair.acquirerTicker),
+          getMnaStartingPrice(pair, pair.acquirerTicker)
+        );
+        const targetPrice = deriveMnaTargetPrice(pair, acquirerAnchor);
+        if (Number.isFinite(targetPrice)) {
           referenceLevels.push({
-            price: peerPrice,
-            label: `${peerTicker} price`,
-            color: "rgba(51, 65, 85, 0.92)",
+            price: targetPrice,
+            label: `${pair.targetTicker} deal value`,
+            color: "rgba(124, 58, 237, 0.92)",
+            style: "dash",
+          });
+        }
+        const startingPrice = getMnaStartingPrice(pair, ticker);
+        if (Number.isFinite(startingPrice)) {
+          referenceLevels.push({
+            price: startingPrice,
+            label: `${ticker} start`,
+            color: "rgba(14, 116, 144, 0.92)",
             style: "dot",
           });
         }
@@ -3921,7 +3906,7 @@ function App() {
       ];
 
       const plotlyLayoutForPair = {
-        paper_bgcolor: "#ffffff",
+        paper_bgcolor: chartPlotBg,
         plot_bgcolor: chartPlotBg,
         margin: { l: 40, r: 20, t: 30, b: 30 },
         dragmode: "zoom",
@@ -4315,7 +4300,7 @@ function App() {
         Apply default TP/SL to quick orders
       </label>
       <label className="chart-control chart-control--small">
-        <span>SL Offset</span>
+        <span>SL Offset (%)</span>
         <input
           type="number"
           min="0"
@@ -4331,7 +4316,7 @@ function App() {
         />
       </label>
       <label className="chart-control chart-control--small">
-        <span>TP Offset</span>
+        <span>TP Offset (%)</span>
         <input
           type="number"
           min="0"
@@ -4346,6 +4331,9 @@ function App() {
           }
         />
       </label>
+      <div className="muted chart-engine-hint">
+        TP/SL offsets are interpreted as percentages from the order reference price.
+      </div>
       <div className="muted chart-engine-hint">{chartRendererMeta.description}</div>
       {!chartRendererMeta.supportsRangeSlider && (
         <div className="muted chart-engine-hint">
@@ -4424,12 +4412,9 @@ function App() {
           onRemovePair={removeMnaPairAt}
           onChangePair={updateMnaPairAt}
           canAddPair={canAddMnaPair}
-          isPairOptionDisabled={isMnaPairOptionDisabled}
           isPeerPriceVisible={isMnaPeerPriceVisible}
           onPeerPriceToggle={setMnaPeerPriceVisible}
           renderTickerChart={renderMnaTickerChart}
-          showChartSettings={showChartSettings}
-          onToggleChartSettings={() => setShowChartSettings((prev) => !prev)}
         />
       );
     } else {
@@ -4546,7 +4531,7 @@ function App() {
         ];
 
         const panelPlotlyLayout = {
-          paper_bgcolor: "#ffffff",
+          paper_bgcolor: chartPlotBg,
           plot_bgcolor: chartPlotBg,
           margin: { l: 40, r: 20, t: 30, b: 30 },
           dragmode: "zoom",
@@ -4603,22 +4588,56 @@ function App() {
       }
     }
 
-    return (
-      <div className={`orderbook-candles ${inline ? "orderbook-candles--inline" : ""}`}>
-        {!showMnaWorkspace && (
-          <div className="card-title chart-header">
-            <span>{panelTitle}</span>
-            {showSettingsToggle && (
+    if (showMnaWorkspace) {
+      return (
+        <div className={`orderbook-candles ${inline ? "orderbook-candles--inline" : ""} chart-view-root`}>
+          <div className="card-title chart-view-title">Chart View</div>
+          <section className="chart-view-subsection">
+            <div className="chart-view-subsection-header">
+              <strong>Chart Settings</strong>
               <button
                 type="button"
                 className="ghost"
                 onClick={() => setShowChartSettings((prev) => !prev)}
               >
-                Chart Settings
+                {showChartSettings ? "Hide Settings" : "Show Settings"}
               </button>
+            </div>
+            {showChartSettings ? (
+              renderChartSettings()
+            ) : (
+              <div className="muted chart-view-subsection-note">
+                Settings are collapsed. Expand to adjust renderer, mouse trading, and TP/SL defaults.
+              </div>
             )}
-          </div>
-        )}
+          </section>
+          <section className="chart-view-subsection">
+            <div className="chart-view-subsection-header">
+              <strong>Pairs</strong>
+              <span className="muted chart-view-subsection-note">
+                Deal value and start price are shown by default on each pair chart.
+              </span>
+            </div>
+            {chartBody}
+          </section>
+        </div>
+      );
+    }
+
+    return (
+      <div className={`orderbook-candles ${inline ? "orderbook-candles--inline" : ""}`}>
+        <div className="card-title chart-header">
+          <span>{panelTitle}</span>
+          {showSettingsToggle && (
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => setShowChartSettings((prev) => !prev)}
+            >
+              Chart Settings
+            </button>
+          )}
+        </div>
         {chartBody}
         {showChartSettings && renderChartSettings()}
       </div>
@@ -5446,6 +5465,12 @@ function App() {
               <div className="muted">• Clicking in the bid zone (prices ≤ best bid) submits a limit BUY on left-click and a market SELL on right-click.</div>
               <div className="muted">• Clicking in the ask zone (prices ≥ best ask) submits a limit SELL on right-click and a market BUY on left-click.</div>
               <div className="muted">• Clicking inside the spread submits no order.</div>
+            </div>
+            <div className="tutorial-block">
+              <h4>Chart Renderers</h4>
+              <div className="muted">
+                Try different chart renderers in Chart Settings; each engine has different speed and interaction behavior.
+              </div>
             </div>
             <div className="tutorial-block">
               <h4>Shortcuts</h4>

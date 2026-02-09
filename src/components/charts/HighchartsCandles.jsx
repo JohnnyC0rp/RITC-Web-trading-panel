@@ -60,11 +60,16 @@ export default function HighchartsCandles({
       tooltip: {
         split: false,
         shared: true,
+        animation: false,
+        hideDelay: 160,
       },
       plotOptions: {
         series: {
           animation: false,
           turboThreshold: 0,
+          states: {
+            inactive: { opacity: 1 },
+          },
         },
       },
       series: [
@@ -204,7 +209,7 @@ export default function HighchartsCandles({
       highcharts={Highcharts}
       constructorType="stockChart"
       options={options}
-      immutable
+      updateArgs={[true, true, false]}
     />
   );
 }

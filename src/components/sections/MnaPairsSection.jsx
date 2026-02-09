@@ -2,7 +2,7 @@
  * MnaPairsSection renders dual-chart merger pair cards.
  * Search anchors:
  * - "mna-pair-select" for pair picker wiring
- * - "mna-peer-toggle" for show-peer-price controls
+ * - "mna-peer-toggle" for default-reference visibility controls
  */
 export default function MnaPairsSection({
   activePairIds,
@@ -12,23 +12,17 @@ export default function MnaPairsSection({
   onRemovePair,
   onChangePair,
   canAddPair,
-  isPairOptionDisabled,
   isPeerPriceVisible,
   onPeerPriceToggle,
   renderTickerChart,
-  showChartSettings,
-  onToggleChartSettings,
 }) {
   return (
     <div className="mna-pairs">
       <div className="mna-pairs-toolbar">
-        <strong className="mna-toolbar-title">Merger Pair Candles</strong>
-        <div className="muted mna-toolbar-note">
-          RITC 2026 merger pairs with deal-value and start-price reference lines.
-        </div>
-        <button type="button" className="ghost small" onClick={onToggleChartSettings}>
-          {showChartSettings ? "Hide Settings" : "Chart Settings"}
-        </button>
+        <strong className="mna-toolbar-title">Pairs</strong>
+        <span className="muted mna-toolbar-note">
+          Add/remove pair cards independently. New cards are appended at the end.
+        </span>
         <button type="button" className="ghost small" onClick={onAddPair} disabled={!canAddPair}>
           Add Pair
         </button>
@@ -39,8 +33,8 @@ export default function MnaPairsSection({
           const pair = pairById.get(pairId) || pairOptions[0];
           if (!pair) return null;
           const chartPairs = [
-            { ticker: pair.targetTicker, peerTicker: pair.acquirerTicker },
-            { ticker: pair.acquirerTicker, peerTicker: pair.targetTicker },
+            { ticker: pair.targetTicker },
+            { ticker: pair.acquirerTicker },
           ];
           return (
             <article key={`${pair.id}-${index}`} className="mna-pair-card">
@@ -52,11 +46,7 @@ export default function MnaPairsSection({
                     onChange={(event) => onChangePair(index, event.target.value)}
                   >
                     {pairOptions.map((option) => (
-                      <option
-                        key={option.id}
-                        value={option.id}
-                        disabled={isPairOptionDisabled(index, option.id)}
-                      >
+                      <option key={option.id} value={option.id}>
                         {option.label}
                       </option>
                     ))}
@@ -76,7 +66,7 @@ export default function MnaPairsSection({
               </div>
               <div className="mna-pair-description">{pair.description}</div>
               <div className="mna-chart-grid">
-                {chartPairs.map(({ ticker, peerTicker }) => (
+                {chartPairs.map(({ ticker }) => (
                   <div key={`${pair.id}-${ticker}`} className="mna-chart-panel">
                     <div className="mna-chart-panel-header">
                       <strong>{ticker}</strong>
@@ -88,10 +78,10 @@ export default function MnaPairsSection({
                             onPeerPriceToggle(pair.id, ticker, event.target.checked)
                           }
                         />
-                        Show {peerTicker} price
+                        Show default reference prices
                       </label>
                     </div>
-                    {renderTickerChart({ pair, ticker, peerTicker })}
+                    {renderTickerChart({ pair, ticker })}
                   </div>
                 ))}
               </div>

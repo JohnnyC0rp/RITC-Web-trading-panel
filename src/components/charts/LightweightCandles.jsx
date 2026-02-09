@@ -20,6 +20,7 @@ export default function LightweightCandles({
   height,
 }) {
   const containerRef = useRef(null);
+  const visibleRangeRef = useRef(null);
 
   useEffect(() => {
     if (!containerRef.current || !candles.length) return undefined;
@@ -86,7 +87,7 @@ export default function LightweightCandles({
             position: "inBar",
             color: palette.deal,
             shape: "circle",
-            size: 3,
+            size: 2,
           };
         })
         .filter(Boolean),
@@ -198,7 +199,17 @@ export default function LightweightCandles({
       });
     }
 
-    chart.timeScale().fitContent();
+    if (visibleRangeRef.current) {
+      chart.timeScale().setVisibleLogicalRange(visibleRangeRef.current);
+    } else {
+      chart.timeScale().fitContent();
+    }
+
+    const handleVisibleRangeChange = (range) => {
+      if (!range) return;
+      visibleRangeRef.current = range;
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
 
     const toPrice = (clientY) => {
       const rect = container.getBoundingClientRect();
@@ -235,6 +246,7 @@ export default function LightweightCandles({
     return () => {
       container.removeEventListener("click", handleClick);
       container.removeEventListener("contextmenu", handleContextMenu);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
       priceLines.forEach((line) => candleSeries.removePriceLine(line));
       resizeObserver.disconnect();
       chart.remove();

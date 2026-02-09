@@ -86,14 +86,7 @@ export const sanitizeMnaPairIds = (rawIds) => {
   if (!Array.isArray(rawIds) || rawIds.length === 0) {
     return [...MNA_DEFAULT_PAIR_IDS];
   }
-  const next = [];
-  const seen = new Set();
-  rawIds.forEach((candidate) => {
-    if (!MNA_CASE_PAIR_IDS.has(candidate)) return;
-    if (seen.has(candidate)) return;
-    seen.add(candidate);
-    next.push(candidate);
-  });
+  const next = rawIds.filter((candidate) => MNA_CASE_PAIR_IDS.has(candidate));
   if (!next.length) return [...MNA_DEFAULT_PAIR_IDS];
   return next;
 };

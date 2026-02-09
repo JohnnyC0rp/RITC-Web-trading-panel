@@ -1,9 +1,9 @@
 export const getChartPalette = (theme) => {
   if (theme === "dark") {
     return {
-      background: "#ffffff",
-      grid: "rgba(148, 163, 184, 0.2)",
-      text: "#0f172a",
+      background: "#000000",
+      grid: "rgba(148, 163, 184, 0.24)",
+      text: "#e2e8f0",
       up: "#34d399",
       down: "#f87171",
       deal: "rgba(148, 163, 184, 0.65)",
@@ -11,7 +11,7 @@ export const getChartPalette = (theme) => {
       openSell: "#ef4444",
       closeBuy: "#86efac",
       closeSell: "#fca5a5",
-      border: "rgba(15, 23, 42, 0.35)",
+      border: "rgba(148, 163, 184, 0.4)",
     };
   }
 
